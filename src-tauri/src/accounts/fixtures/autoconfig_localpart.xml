@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<clientConfig version="1.1">
+  <emailProvider id="corp.example">
+    <domain>corp.example</domain>
+    <incomingServer type="imap">
+      <hostname>imap.%EMAILDOMAIN%</hostname>
+      <port>143</port>
+      <socketType>plain</socketType>
+      <username>%EMAILLOCALPART%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>imap.%EMAILDOMAIN%</hostname>
+      <port>143</port>
+      <socketType>STARTTLS</socketType>
+      <username>%EMAILLOCALPART%</username>
+    </incomingServer>
+  </emailProvider>
+</clientConfig>

@@ -1,0 +1,191 @@
+//! Thin Tauri command wrappers around [`App`].
+
+use std::sync::Arc;
+
+use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt;
+
+use crate::accounts::discovery::DiscoveryResult;
+use crate::error::{AppError, Result};
+use crate::model::*;
+use crate::service::{AccountView, App, FlagKind, FolderList, NewAccountInput, OAuthStatus};
+
+type AppState<'a> = State<'a, Arc<App>>;
+
+fn opener(app: &AppHandle) -> impl FnOnce(&str) -> Result<()> + '_ {
+    move |url: &str| {
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| AppError::Other(format!("could not open the browser: {e}")))
+    }
+}
+
+#[tauri::command]
+pub fn list_accounts(state: AppState<'_>) -> Result<Vec<AccountView>> {
+    state.list_accounts()
+}
+
+#[tauri::command]
+pub async fn discover(state: AppState<'_>, email: String) -> Result<DiscoveryResult> {
+    Ok(state.discover(&email).await)
+}
+
+#[tauri::command]
+pub fn oauth_status(state: AppState<'_>) -> OAuthStatus {
+    state.oauth_status()
+}
+
+#[tauri::command]
+pub async fn add_account(app: AppHandle, state: AppState<'_>, input: NewAccountInput) -> Result<AccountView> {
+    state.add_account(input, opener(&app)).await
+}
+
+#[tauri::command]
+pub async fn reauth_account(
+    app: AppHandle,
+    state: AppState<'_>,
+    account_id: String,
+    password: Option<String>,
+) -> Result<()> {
+    state.reauth_account(&account_id, password, opener(&app)).await
+}
+
+#[tauri::command]
+pub fn cancel_oauth(state: AppState<'_>) {
+    state.cancel_oauth()
+}
+
+#[tauri::command]
+pub fn update_account(
+    state: AppState<'_>,
+    account_id: String,
+    display_name: String,
+    color: String,
+) -> Result<()> {
+    state.update_account(&account_id, &display_name, &color)
+}
+
+#[tauri::command]
+pub fn remove_account(state: AppState<'_>, account_id: String) -> Result<()> {
+    state.remove_account(&account_id)
+}
+
+#[tauri::command]
+pub fn list_folders(state: AppState<'_>) -> Result<FolderList> {
+    state.list_folders()
+}
+
+#[tauri::command]
+pub fn list_messages(
+    state: AppState<'_>,
+    view: View,
+    offset: u32,
+    limit: u32,
+    threads: bool,
+) -> Result<MessagePage> {
+    state.list_messages(&view, offset, limit, threads)
+}
+
+#[tauri::command]
+pub fn open_folder(state: AppState<'_>, folder_id: i64) -> Result<()> {
+    state.open_folder(folder_id)
+}
+
+#[tauri::command]
+pub fn sync_now(state: AppState<'_>, account_id: Option<String>) {
+    state.sync_now(account_id.as_deref())
+}
+
+#[tauri::command]
+pub async fn load_older(state: AppState<'_>, folder_id: i64) -> Result<bool> {
+    state.load_older(folder_id).await
+}
+
+#[tauri::command]
+pub async fn get_message(state: AppState<'_>, id: i64) -> Result<MessageDetail> {
+    state.get_message(id).await
+}
+
+#[tauri::command]
+pub fn get_thread(state: AppState<'_>, id: i64) -> Result<Vec<MessageSummary>> {
+    state.get_thread(id)
+}
+
+#[tauri::command]
+pub fn set_flags(
+    state: AppState<'_>,
+    ids: Vec<i64>,
+    flag: FlagKind,
+    value: bool,
+    threads: bool,
+) -> Result<()> {
+    state.set_flags(&ids, flag, value, threads)
+}
+
+#[tauri::command]
+pub fn move_messages(state: AppState<'_>, ids: Vec<i64>, target_folder_id: i64, threads: bool) -> Result<()> {
+    state.move_messages(&ids, target_folder_id, threads)
+}
+
+#[tauri::command]
+pub fn delete_messages(state: AppState<'_>, ids: Vec<i64>, threads: bool) -> Result<()> {
+    state.delete_messages(&ids, threads)
+}
+
+#[tauri::command]
+pub fn archive_messages(state: AppState<'_>, ids: Vec<i64>, threads: bool) -> Result<()> {
+    state.archive_messages(&ids, threads)
+}
+
+#[tauri::command]
+pub async fn create_archive_folder(state: AppState<'_>, account_id: String) -> Result<()> {
+    state.create_archive_folder(&account_id).await
+}
+
+#[tauri::command]
+pub fn allow_remote_content(state: AppState<'_>, sender: String) -> Result<()> {
+    state.allow_remote_content(&sender)
+}
+
+#[tauri::command]
+pub fn save_attachment(state: AppState<'_>, message_id: i64, index: u32, path: String) -> Result<()> {
+    state.save_attachment(message_id, index, &path)
+}
+
+#[tauri::command]
+pub fn open_attachment(app: AppHandle, state: AppState<'_>, message_id: i64, index: u32) -> Result<()> {
+    let path = state.attachment_temp_file(message_id, index)?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn send_message(state: AppState<'_>, draft: Draft) -> Result<()> {
+    state.send(draft).await
+}
+
+#[tauri::command]
+pub fn save_draft(state: AppState<'_>, draft: Draft) -> Result<i64> {
+    state.save_draft(&draft)
+}
+
+#[tauri::command]
+pub fn list_drafts(state: AppState<'_>) -> Result<Vec<Draft>> {
+    state.list_drafts()
+}
+
+#[tauri::command]
+pub fn get_draft(state: AppState<'_>, id: i64) -> Result<Draft> {
+    state.get_draft(id)
+}
+
+#[tauri::command]
+pub fn delete_draft(state: AppState<'_>, id: i64) -> Result<()> {
+    state.delete_draft(id)
+}
+
+#[tauri::command]
+pub fn suggest_contacts(state: AppState<'_>, prefix: String) -> Result<Vec<Address>> {
+    state.suggest_contacts(&prefix)
+}
