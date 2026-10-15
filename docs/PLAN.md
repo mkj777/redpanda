@@ -23,16 +23,23 @@ redpanda is a minimal desktop mail client for Windows that brings Gmail, Outlook
 
 Each milestone is usable on its own and lands on `main`.
 
-| # | Milestone | Content |
-|---|---|---|
-| 1 | Scaffold | Tauri 2 + React + TS + Vite + Tailwind, i18n, three-panel layout |
-| 2 | Store + IMAP with password | SQLite schema and migrations, custom IMAP account, folder list, initial header sync, message list from the DB |
-| 3 | Reading pane | Lazy body fetch, MIME parsing, sanitizing, sandboxed iframe, remote image blocking, attachments |
-| 4 | Autodiscovery + account wizard | Provider table, MX, Mozilla ISPDB / autoconfig, RFC 6186 SRV, guessing, manual form |
-| 5 | OAuth Google + Microsoft | PKCE loopback flow, token storage and refresh, XOAUTH2 for IMAP and SMTP |
-| 6 | Incremental sync + IDLE + actions | Flags, move, delete, archive, unified views, live UI updates |
-| 7 | Compose + send | SMTP (password and XOAUTH2), reply/forward, Sent append, local drafts |
-| 8 | Polish | FTS search, keyboard shortcuts, settings, dark mode, README with OAuth guide, CI |
+| # | Milestone | Content | Status |
+|---|---|---|---|
+| 1 | Scaffold | Tauri 2 + React + TS + Vite + Tailwind, i18n, three-panel layout | done |
+| 2 | Store + IMAP with password | SQLite schema and migrations, custom IMAP account, folder list, initial header sync, message list from the DB | done |
+| 3 | Reading pane | Lazy body fetch, MIME parsing, sanitizing, sandboxed iframe, remote image blocking, attachments | done |
+| 4 | Autodiscovery + account wizard | Provider table, MX, Mozilla ISPDB / autoconfig, RFC 6186 SRV, guessing, manual form | done |
+| 5 | OAuth Google + Microsoft | PKCE loopback flow, token storage and refresh, XOAUTH2 for IMAP and SMTP | done, needs a manual test with real client IDs |
+| 6 | Incremental sync + IDLE + actions | Flags, move, delete, archive, unified views, live UI updates | done |
+| 7 | Compose + send | SMTP (password and XOAUTH2), reply/forward, Sent append, local drafts | done |
+| 8 | Polish | FTS search, keyboard shortcuts, settings, dark mode, README with OAuth guide, CI | done |
+
+## Later
+
+- Sync drafts to the IMAP Drafts folder
+- HTML compose
+- QRESYNC for faster flag and deletion sync on large folders
+- Signed release builds and auto-update
 
 ## Verification
 
