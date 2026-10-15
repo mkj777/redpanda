@@ -810,3 +810,62 @@ impl App {
             .with(|c| queries::suggest_contacts(c, prefix.trim(), 8))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The JSON shapes below are exactly what `src/lib/ipc.ts` sends.
+    #[test]
+    fn frontend_payloads_deserialize() {
+        let v: View = serde_json::from_str(r#"{"kind":"folder","folderId":4}"#).unwrap();
+        assert!(matches!(v, View::Folder { folder_id: 4 }));
+        let v: View = serde_json::from_str(r#"{"kind":"unified","which":"starred"}"#).unwrap();
+        assert!(matches!(
+            v,
+            View::Unified {
+                which: UnifiedView::Starred
+            }
+        ));
+        let v: View = serde_json::from_str(r#"{"kind":"search","query":"x"}"#).unwrap();
+        assert!(matches!(v, View::Search { .. }));
+
+        let input: NewAccountInput = serde_json::from_str(
+            r#"{"email":"a@b.de","displayName":"A","providerId":null,"username":"a@b.de",
+                "imap":{"host":"i","port":993,"security":"tls"},
+                "smtp":{"host":"s","port":587,"security":"start_tls"},
+                "auth":{"type":"oauth","provider":"microsoft"}}"#,
+        )
+        .unwrap();
+        assert_eq!(input.smtp.security, Security::StartTls);
+        assert!(matches!(
+            input.auth,
+            NewAuth::Oauth {
+                provider: OAuthProvider::Microsoft
+            }
+        ));
+
+        let d: Draft = serde_json::from_str(
+            r#"{"accountId":"a","to":[{"name":null,"email":"x@y.z"}],"cc":[],"bcc":[],"subject":"s",
+                "body":"b","references":[],"attachments":[],"replyToMessageId":3,"inReplyTo":"m@x"}"#,
+        )
+        .unwrap();
+        assert_eq!(d.reply_to_message_id, Some(3));
+        let f: FlagKind = serde_json::from_str(r#""flagged""#).unwrap();
+        assert!(matches!(f, FlagKind::Flagged));
+    }
+
+    #[test]
+    fn views_serialize_like_the_frontend_types() {
+        let a = AccountView {
+            account: crate::store::queries_test_account("x"),
+            status: SyncState::AuthRequired,
+            status_error: None,
+        };
+        let json = serde_json::to_value(&a).unwrap();
+        assert_eq!(json["status"], "auth_required");
+        assert_eq!(json["authType"], "password");
+        assert_eq!(json["imap"]["security"], "tls");
+        assert_eq!(json["sentSavedByServer"], false);
+    }
+}

@@ -1,0 +1,220 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save"
+  },
+  "start": {
+    "text": "Add an email account to get started."
+  },
+  "nav": {
+    "label": "Folders",
+    "compose": "New message",
+    "allInboxes": "All inboxes",
+    "unread": "Unread",
+    "starred": "Starred",
+    "drafts": "Drafts",
+    "addAccount": "Add account",
+    "settings": "Settings"
+  },
+  "folder": {
+    "inbox": "Inbox",
+    "sent": "Sent",
+    "drafts": "Drafts",
+    "trash": "Trash",
+    "junk": "Junk",
+    "archive": "Archive",
+    "all": "All mail",
+    "flagged": "Starred",
+    "important": "Important"
+  },
+  "status": {
+    "idle": "Up to date",
+    "syncing": "Syncing",
+    "error": "Sync error",
+    "offline": "Offline",
+    "auth_required": "Sign-in required"
+  },
+  "list": {
+    "searchPlaceholder": "Search all mail",
+    "clearSearch": "Clear search",
+    "refresh": "Check for new mail",
+    "results": "Search results",
+    "empty": "No messages here",
+    "emptySearch": "Nothing found for “{{query}}”",
+    "draftsEmpty": "No drafts",
+    "loadingOlder": "Loading older messages",
+    "noSubject": "(no subject)",
+    "noRecipient": "(no recipient)",
+    "unknownSender": "(unknown sender)",
+    "toPrefix": "To:"
+  },
+  "action": {
+    "reply": "Reply",
+    "replyAll": "Reply all",
+    "forward": "Forward",
+    "archive": "Archive",
+    "delete": "Delete",
+    "move": "Move to folder",
+    "star": "Star",
+    "unstar": "Remove star",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread"
+  },
+  "toast": {
+    "archived_one": "Conversation archived",
+    "archived_other": "{{count}} conversations archived",
+    "deleted_one": "Moved to trash",
+    "deleted_other": "{{count}} conversations moved to trash"
+  },
+  "archive": {
+    "missing": "This account has no archive folder yet.",
+    "create": "Create folder"
+  },
+  "reader": {
+    "empty": "No message selected",
+    "loading": "Loading message",
+    "me": "me",
+    "to": "to {{list}}",
+    "remoteBlocked": "Remote images are blocked to protect your privacy.",
+    "loadImages": "Load images",
+    "alwaysFrom": "Always for {{sender}}",
+    "attachments_one": "{{count}} attachment",
+    "attachments_other": "{{count}} attachments",
+    "open": "Open",
+    "save": "Save as",
+    "blockedType": "This file type can only be saved, not opened directly."
+  },
+  "compose": {
+    "title": "New message",
+    "titleReply": "Reply",
+    "titleForward": "Forward",
+    "from": "From",
+    "to": "To",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "showCcBcc": "Cc / Bcc",
+    "subject": "Subject",
+    "bodyPlaceholder": "Write your message",
+    "attach": "Attach files",
+    "forwardedAttachments": "Original attachments",
+    "removeAttachment": "Remove {{name}}",
+    "removeRecipient": "Remove {{name}}",
+    "send": "Send",
+    "sending": "Sending",
+    "sendHint": "Ctrl + Enter to send",
+    "discard": "Discard",
+    "saved": "Draft saved",
+    "sent": "Message sent",
+    "noRecipients": "Add at least one recipient.",
+    "invalidRecipient": "{{email}} is not a valid address."
+  },
+  "quote": {
+    "wrote": "On {{date}}, {{sender}} wrote:",
+    "forwarded": "---------- Forwarded message ----------",
+    "from": "From",
+    "date": "Date",
+    "subject": "Subject",
+    "to": "To",
+    "cc": "Cc"
+  },
+  "wizard": {
+    "title": "Add account",
+    "email": "Email address",
+    "name": "Your name",
+    "namePlaceholder": "Shown to the people you write to",
+    "detecting": "Looking up server settings",
+    "detected": {
+      "google": "Google account",
+      "microsoft": "Microsoft account",
+      "provider": "{{name}} account",
+      "servers": "Server settings found",
+      "none": "No settings found. Enter your server details below."
+    },
+    "signInGoogle": "Sign in with Google",
+    "signInMicrosoft": "Sign in with Microsoft",
+    "waitingBrowser": "Finish signing in in your browser.",
+    "useAppPassword": "Use an app password instead",
+    "useOAuth": "Sign in with {{provider}} instead",
+    "oauthMissing": "redpanda needs your own {{provider}} OAuth client ID before you can sign in.",
+    "setupGuide": "Open the setup guide",
+    "password": "Password",
+    "appPassword": "App password",
+    "advanced": "Server settings",
+    "imap": "Incoming mail (IMAP)",
+    "smtp": "Outgoing mail (SMTP)",
+    "host": "Server",
+    "port": "Port",
+    "security": "Encryption",
+    "sec": {
+      "tls": "SSL/TLS",
+      "start_tls": "STARTTLS",
+      "none": "None"
+    },
+    "username": "Username",
+    "checking": "Checking connection",
+    "connect": "Add account",
+    "added": "{{email}} added. Syncing now."
+  },
+  "hint": {
+    "google_app_password": "Signing in with a password needs 2-step verification and an app password from your Google account.",
+    "enable_imap_gmx": "Turn on POP3/IMAP access in the GMX web mail settings first.",
+    "enable_imap_webde": "Turn on POP3/IMAP access in the WEB.DE web mail settings first.",
+    "icloud_app_password": "iCloud needs an app-specific password. Create one at account.apple.com.",
+    "yahoo_app_password": "Yahoo needs an app password. Create one in your Yahoo account security settings.",
+    "tonline_mail_password": "Use your separate email password, not the password of your Telekom login."
+  },
+  "settings": {
+    "title": "Settings",
+    "tab": {
+      "accounts": "Accounts",
+      "general": "General",
+      "shortcuts": "Shortcuts"
+    },
+    "displayName": "Display name",
+    "color": "Color",
+    "relogin": "Sign in again",
+    "signedIn": "Signed in",
+    "remove": "Remove",
+    "removeConfirm": "Removes the account and its local copy. Nothing changes on the server.",
+    "noAccounts": "No accounts yet.",
+    "language": "Language",
+    "lang": {
+      "system": "Same as Windows"
+    },
+    "theme": "Appearance",
+    "themeOption": {
+      "system": "Same as Windows",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "threads": "Group messages into conversations"
+  },
+  "shortcuts": {
+    "nav": "Next or previous message",
+    "compose": "New message",
+    "reply": "Reply",
+    "replyAll": "Reply all",
+    "forward": "Forward",
+    "archive": "Archive",
+    "delete": "Delete",
+    "star": "Star or remove star",
+    "unread": "Mark as read or unread",
+    "search": "Search",
+    "send": "Send message"
+  },
+  "errors": {
+    "db": "The local database reported an error.",
+    "imap": "The mail server reported an error.",
+    "smtp": "The message could not be sent.",
+    "network": "The server could not be reached. Check your connection and the server settings.",
+    "auth": "Sign-in failed. Check the username and password.",
+    "auth_required": "This account needs you to sign in again.",
+    "oauth_not_configured": "No OAuth client ID is configured for this provider.",
+    "secrets": "The Windows Credential Manager could not be accessed.",
+    "not_found": "The message no longer exists on the server.",
+    "no_archive_folder": "This account has no archive folder.",
+    "cancelled": "Cancelled.",
+    "other": "Something went wrong."
+  }
+}

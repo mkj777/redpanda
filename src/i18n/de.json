@@ -1,0 +1,220 @@
+{
+  "common": {
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "save": "Speichern"
+  },
+  "start": {
+    "text": "Füge ein E-Mail-Konto hinzu, um loszulegen."
+  },
+  "nav": {
+    "label": "Ordner",
+    "compose": "Neue Nachricht",
+    "allInboxes": "Alle Posteingänge",
+    "unread": "Ungelesen",
+    "starred": "Markiert",
+    "drafts": "Entwürfe",
+    "addAccount": "Konto hinzufügen",
+    "settings": "Einstellungen"
+  },
+  "folder": {
+    "inbox": "Posteingang",
+    "sent": "Gesendet",
+    "drafts": "Entwürfe",
+    "trash": "Papierkorb",
+    "junk": "Spam",
+    "archive": "Archiv",
+    "all": "Alle Nachrichten",
+    "flagged": "Markiert",
+    "important": "Wichtig"
+  },
+  "status": {
+    "idle": "Aktuell",
+    "syncing": "Wird synchronisiert",
+    "error": "Synchronisierungsfehler",
+    "offline": "Offline",
+    "auth_required": "Anmeldung erforderlich"
+  },
+  "list": {
+    "searchPlaceholder": "Alle E-Mails durchsuchen",
+    "clearSearch": "Suche leeren",
+    "refresh": "Nach neuen E-Mails suchen",
+    "results": "Suchergebnisse",
+    "empty": "Keine Nachrichten",
+    "emptySearch": "Nichts gefunden für „{{query}}“",
+    "draftsEmpty": "Keine Entwürfe",
+    "loadingOlder": "Ältere Nachrichten werden geladen",
+    "noSubject": "(kein Betreff)",
+    "noRecipient": "(kein Empfänger)",
+    "unknownSender": "(unbekannter Absender)",
+    "toPrefix": "An:"
+  },
+  "action": {
+    "reply": "Antworten",
+    "replyAll": "Allen antworten",
+    "forward": "Weiterleiten",
+    "archive": "Archivieren",
+    "delete": "Löschen",
+    "move": "In Ordner verschieben",
+    "star": "Markieren",
+    "unstar": "Markierung entfernen",
+    "markRead": "Als gelesen markieren",
+    "markUnread": "Als ungelesen markieren"
+  },
+  "toast": {
+    "archived_one": "Konversation archiviert",
+    "archived_other": "{{count}} Konversationen archiviert",
+    "deleted_one": "In den Papierkorb verschoben",
+    "deleted_other": "{{count}} Konversationen in den Papierkorb verschoben"
+  },
+  "archive": {
+    "missing": "Dieses Konto hat noch keinen Archivordner.",
+    "create": "Ordner anlegen"
+  },
+  "reader": {
+    "empty": "Keine Nachricht ausgewählt",
+    "loading": "Nachricht wird geladen",
+    "me": "mich",
+    "to": "an {{list}}",
+    "remoteBlocked": "Externe Bilder sind zum Schutz deiner Privatsphäre blockiert.",
+    "loadImages": "Bilder laden",
+    "alwaysFrom": "Immer für {{sender}}",
+    "attachments_one": "{{count}} Anhang",
+    "attachments_other": "{{count}} Anhänge",
+    "open": "Öffnen",
+    "save": "Speichern unter",
+    "blockedType": "Dieser Dateityp kann nur gespeichert, nicht direkt geöffnet werden."
+  },
+  "compose": {
+    "title": "Neue Nachricht",
+    "titleReply": "Antworten",
+    "titleForward": "Weiterleiten",
+    "from": "Von",
+    "to": "An",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "showCcBcc": "Cc / Bcc",
+    "subject": "Betreff",
+    "bodyPlaceholder": "Nachricht schreiben",
+    "attach": "Dateien anhängen",
+    "forwardedAttachments": "Ursprüngliche Anhänge",
+    "removeAttachment": "{{name}} entfernen",
+    "removeRecipient": "{{name}} entfernen",
+    "send": "Senden",
+    "sending": "Wird gesendet",
+    "sendHint": "Strg + Enter zum Senden",
+    "discard": "Verwerfen",
+    "saved": "Entwurf gespeichert",
+    "sent": "Nachricht gesendet",
+    "noRecipients": "Füge mindestens einen Empfänger hinzu.",
+    "invalidRecipient": "{{email}} ist keine gültige Adresse."
+  },
+  "quote": {
+    "wrote": "Am {{date}} schrieb {{sender}}:",
+    "forwarded": "---------- Weitergeleitete Nachricht ----------",
+    "from": "Von",
+    "date": "Datum",
+    "subject": "Betreff",
+    "to": "An",
+    "cc": "Cc"
+  },
+  "wizard": {
+    "title": "Konto hinzufügen",
+    "email": "E-Mail-Adresse",
+    "name": "Dein Name",
+    "namePlaceholder": "Wird Empfängern angezeigt",
+    "detecting": "Servereinstellungen werden gesucht",
+    "detected": {
+      "google": "Google-Konto",
+      "microsoft": "Microsoft-Konto",
+      "provider": "{{name}}-Konto",
+      "servers": "Servereinstellungen gefunden",
+      "none": "Keine Einstellungen gefunden. Gib die Serverdaten unten ein."
+    },
+    "signInGoogle": "Mit Google anmelden",
+    "signInMicrosoft": "Mit Microsoft anmelden",
+    "waitingBrowser": "Schließe die Anmeldung im Browser ab.",
+    "useAppPassword": "Stattdessen ein App-Passwort verwenden",
+    "useOAuth": "Stattdessen mit {{provider}} anmelden",
+    "oauthMissing": "redpanda braucht eine eigene OAuth-Client-ID für {{provider}}, bevor du dich anmelden kannst.",
+    "setupGuide": "Anleitung öffnen",
+    "password": "Passwort",
+    "appPassword": "App-Passwort",
+    "advanced": "Servereinstellungen",
+    "imap": "Posteingang (IMAP)",
+    "smtp": "Postausgang (SMTP)",
+    "host": "Server",
+    "port": "Port",
+    "security": "Verschlüsselung",
+    "sec": {
+      "tls": "SSL/TLS",
+      "start_tls": "STARTTLS",
+      "none": "Keine"
+    },
+    "username": "Benutzername",
+    "checking": "Verbindung wird geprüft",
+    "connect": "Konto hinzufügen",
+    "added": "{{email}} hinzugefügt. Die Synchronisierung läuft."
+  },
+  "hint": {
+    "google_app_password": "Für die Anmeldung mit Passwort brauchst du die Bestätigung in zwei Schritten und ein App-Passwort aus deinem Google-Konto.",
+    "enable_imap_gmx": "Aktiviere zuerst den POP3/IMAP-Abruf in den Einstellungen von GMX.",
+    "enable_imap_webde": "Aktiviere zuerst den POP3/IMAP-Abruf in den Einstellungen von WEB.DE.",
+    "icloud_app_password": "iCloud braucht ein App-spezifisches Passwort. Du kannst es unter account.apple.com erstellen.",
+    "yahoo_app_password": "Yahoo braucht ein App-Passwort. Du kannst es in den Sicherheitseinstellungen deines Yahoo-Kontos erstellen.",
+    "tonline_mail_password": "Verwende dein separates E-Mail-Passwort, nicht das Passwort deines Telekom-Logins."
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "tab": {
+      "accounts": "Konten",
+      "general": "Allgemein",
+      "shortcuts": "Tastenkürzel"
+    },
+    "displayName": "Anzeigename",
+    "color": "Farbe",
+    "relogin": "Erneut anmelden",
+    "signedIn": "Angemeldet",
+    "remove": "Entfernen",
+    "removeConfirm": "Entfernt das Konto und die lokale Kopie. Auf dem Server ändert sich nichts.",
+    "noAccounts": "Noch keine Konten.",
+    "language": "Sprache",
+    "lang": {
+      "system": "Wie Windows"
+    },
+    "theme": "Darstellung",
+    "themeOption": {
+      "system": "Wie Windows",
+      "light": "Hell",
+      "dark": "Dunkel"
+    },
+    "threads": "Nachrichten als Konversationen gruppieren"
+  },
+  "shortcuts": {
+    "nav": "Nächste oder vorherige Nachricht",
+    "compose": "Neue Nachricht",
+    "reply": "Antworten",
+    "replyAll": "Allen antworten",
+    "forward": "Weiterleiten",
+    "archive": "Archivieren",
+    "delete": "Löschen",
+    "star": "Markieren oder Markierung entfernen",
+    "unread": "Als gelesen oder ungelesen markieren",
+    "search": "Suchen",
+    "send": "Nachricht senden"
+  },
+  "errors": {
+    "db": "Die lokale Datenbank hat einen Fehler gemeldet.",
+    "imap": "Der Mailserver hat einen Fehler gemeldet.",
+    "smtp": "Die Nachricht konnte nicht gesendet werden.",
+    "network": "Der Server ist nicht erreichbar. Prüfe deine Verbindung und die Servereinstellungen.",
+    "auth": "Anmeldung fehlgeschlagen. Prüfe Benutzername und Passwort.",
+    "auth_required": "Für dieses Konto musst du dich erneut anmelden.",
+    "oauth_not_configured": "Für diesen Anbieter ist keine OAuth-Client-ID eingerichtet.",
+    "secrets": "Auf die Windows-Anmeldeinformationsverwaltung konnte nicht zugegriffen werden.",
+    "not_found": "Die Nachricht existiert auf dem Server nicht mehr.",
+    "no_archive_folder": "Dieses Konto hat keinen Archivordner.",
+    "cancelled": "Abgebrochen.",
+    "other": "Etwas ist schiefgelaufen."
+  }
+}

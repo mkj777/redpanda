@@ -12,3 +12,5 @@ src-tauri/gen/schemas/
 oauth.json
 .env
 .env.*
+
+.playwright-mcp/

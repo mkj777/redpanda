@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #faf8f5;
+  --surface: #ffffff;
+  --sidebar: #f3f0eb;
+  --hover: #ece7e0;
+  --selected: #f4e6d4;
+  --border: #e6e0d7;
+  --border-strong: #d3cbbf;
+  --text: #1c1917;
+  --muted: #655d55;
+  --faint: #9c9389;
+  --accent: #b45309;
+  --accent-hover: #92400e;
+  --accent-text: #ffffff;
+  --danger: #b91c1c;
+  --mail-bg: #ffffff;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #161514;
+  --surface: #1c1b1a;
+  --sidebar: #121110;
+  --hover: #252321;
+  --selected: #33261b;
+  --border: #2b2927;
+  --border-strong: #3d3a36;
+  --text: #ebe6e0;
+  --muted: #a39b92;
+  --faint: #716a63;
+  --accent: #d9773a;
+  --accent-hover: #e88b51;
+  --accent-text: #1a0f07;
+  --danger: #f87171;
+  --mail-bg: #f7f5f2;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sidebar: var(--sidebar);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-text);
+  --color-danger: var(--danger);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable],
+.selectable {
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
