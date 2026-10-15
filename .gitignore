@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+src-tauri/gen/schemas/
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Local secrets, never commit
+oauth.json
+.env
+.env.*
