@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" shape-rendering="geometricPrecision"><defs><linearGradient id="bk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E2C3A4"/><stop offset="1" stop-color="#CFA885"/></linearGradient><linearGradient id="hd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F08040"/><stop offset="1" stop-color="#B8400F"/></linearGradient><linearGradient id="fr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F2E2D1"/></linearGradient></defs>
+  <rect x="1" y="9" width="18" height="10" rx="2" fill="url(#bk)" stroke="#9C7350" stroke-width="0.8"/>
+  <path d="M4.5,7.5L4.5,1.5L9,4.5Z" fill="url(#hd)"/><path d="M15.5,7.5L15.5,1.5L11,4.5Z" fill="url(#hd)"/>
+  
+  <path d="M5 15 V9 A5 4.545454545454545 0 0 1 15 9 V15 Z" fill="url(#hd)"/>
+  
+  
+  <rect x="6" y="8" width="2" height="2" rx="0" fill="#1C1917"/><rect x="12" y="8" width="2" height="2" rx="0" fill="#1C1917"/>
+  <rect x="9" y="10" width="2" height="2" rx="0.4" fill="#1C1917"/>
+  <path d="M1 11.5 L10 15 L19 11.5 V17 Q19 19 17 19 H3 Q1 19 1 17 Z" fill="url(#fr)" stroke="#9C7350" stroke-opacity="0.9" stroke-width="0.6" stroke-linejoin="round"/></svg>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E2C3A4"/><stop offset="1" stop-color="#CFA885"/>
+    </linearGradient>
+    <linearGradient id="hd" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#F08040"/><stop offset="1" stop-color="#B8400F"/>
+    </linearGradient>
+    <linearGradient id="fr" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F5E6D6"/>
+    </linearGradient>
+    <filter id="sh" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dy="-8"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.25"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16"/>
+      <feOffset dy="12"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.24"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(0 -22)"><g filter="url(#drop)">
+    <rect x="96" y="440" width="832" height="464" rx="80" fill="url(#bk)" stroke="#9C7350" stroke-opacity="0.45" stroke-width="6"/>
+    
+    <path d="M300 420 C270 300 282 190 332 168 C380 148 452 214 500 300 Z" fill="#FFF8EF"/>
+    <path d="M326 360 C316 290 326 236 350 228 C376 220 412 256 440 300 Z" fill="#6E220A"/><g transform="translate(1024 0) scale(-1 1)">
+    <path d="M300 420 C270 300 282 190 332 168 C380 148 452 214 500 300 Z" fill="#FFF8EF"/>
+    <path d="M326 360 C316 290 326 236 350 228 C376 220 412 256 440 300 Z" fill="#6E220A"/></g>
+    <path d="M512 262 C680 262 780 360 780 520 C780 610 760 700 720 760 H304 C264 700 244 610 244 520 C244 360 344 262 512 262 Z" fill="url(#hd)"/>
+    <ellipse cx="404" cy="420" rx="44" ry="28" transform="rotate(16 404 420)" fill="#FFF8EF"/>
+    <ellipse cx="620" cy="420" rx="44" ry="28" transform="rotate(-16 620 420)" fill="#FFF8EF"/>
+    <path d="M512 520 C590 520 640 560 660 640 L560 720 H464 L364 640 C384 560 434 520 512 520 Z" fill="#FFF8EF"/>
+    <circle cx="404" cy="500" r="36" fill="#1C1917"/>
+    <circle cx="620" cy="500" r="36" fill="#1C1917"/>
+    <path d="M474 584 H550 Q574 584 560 604 L530 638 Q512 656 494 638 L464 604 Q450 584 474 584 Z" fill="#1C1917"/>
+    <g filter="url(#sh)">
+      <path d="M96 572 Q96 518 144 542 L462 700 Q512 724 562 700 L880 542 Q928 518 928 572 V824 Q928 904 848 904 H176 Q96 904 96 824 Z" fill="url(#fr)" stroke="#9C7350" stroke-opacity="0.4" stroke-width="6" stroke-linejoin="round"/>
+    </g>
+  </g></g>
+  </svg>

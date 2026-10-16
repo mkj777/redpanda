@@ -1,0 +1,13 @@
+{
+  "name": "redpanda-icon-tools",
+  "private": true,
+  "description": "Generates the redpanda icon directions, optical sizes, test lab and Tauri icon sets",
+  "scripts": {
+    "export": "node export.js",
+    "lab": "node lab.js"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "sharp": "0.33.5"
+  }
+}

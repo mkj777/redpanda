@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" shape-rendering="geometricPrecision"><defs><linearGradient id="bk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E2C3A4"/><stop offset="1" stop-color="#CFA885"/></linearGradient><linearGradient id="hd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F08040"/><stop offset="1" stop-color="#B8400F"/></linearGradient><linearGradient id="fr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F2E2D1"/></linearGradient></defs>
+  <rect x="1" y="10" width="22" height="13" rx="2.5" fill="url(#bk)" stroke="#9C7350" stroke-width="1"/>
+  <path d="M5,9L5.5,1.5L11,5.5Z" fill="url(#hd)"/><path d="M19,9L18.5,1.5L13,5.5Z" fill="url(#hd)"/>
+  <path d="M6.083333333333334,7.666666666666666L6.333333333333334,3.9166666666666665L9.083333333333334,5.916666666666666Z" fill="#FFF8EF"/><path d="M17.916666666666664,7.666666666666666L17.666666666666664,3.9166666666666665L14.916666666666666,5.916666666666666Z" fill="#FFF8EF"/>
+  <path d="M6 18 V11 A6 5.454545454545454 0 0 1 18 11 V18 Z" fill="url(#hd)"/>
+  
+  <rect x="9" y="12.5" width="6" height="7.5" rx="3" fill="#FFF8EF"/>
+  <rect x="7" y="9" width="3" height="3" rx="0.6" fill="#1C1917"/><rect x="14" y="9" width="3" height="3" rx="0.6" fill="#1C1917"/>
+  <rect x="11" y="12" width="2" height="2" rx="0.4" fill="#1C1917"/>
+  <path d="M1 13.5 L12 18 L23 13.5 V20.5 Q23 23 20.5 23 H3.5 Q1 23 1 20.5 Z" fill="url(#fr)" stroke="#9C7350" stroke-opacity="0.9" stroke-width="0.75" stroke-linejoin="round"/></svg>
