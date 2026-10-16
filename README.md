@@ -38,13 +38,12 @@ pnpm tauri build    # MSI and NSIS installers in src-tauri/target/release/bundle
 
 ### Gmail and Outlook sign-in
 
-Google and Microsoft sign-in needs OAuth client IDs that you register yourself, once, for free. redpanda does not ship shared IDs: Google only allows full mailbox access for verified apps, and that verification includes a paid security audit. The step-by-step guide is in **[docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)**. In short:
+The installers from Releases include redpanda's own OAuth client IDs, so signing in with Google or Microsoft needs no setup:
 
-1. Create a Google Cloud OAuth client of type "Desktop app" and/or a Microsoft Entra app registration (public client, redirect `http://localhost`).
-2. Copy [`oauth.example.json`](oauth.example.json) to `%APPDATA%\redpanda\oauth.json` and fill in the IDs.
-3. Restart redpanda.
+- **Outlook.com and Microsoft 365** sign in through Microsoft in your browser.
+- **Gmail** signs in through Google too. Google has not verified redpanda yet, so it shows a warning first ("Google hasn't verified this app"): choose **Advanced** and then the link to redpanda. Unverified apps are limited to 100 Google accounts. If sign-in is refused, use an app password instead (needs 2-step verification, create it at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
 
-Without it, Gmail still works with an app password, and every other provider works anyway.
+If you build redpanda yourself, the IDs are not included. Register your own clients and put them in `%APPDATA%\redpanda\oauth.json`, as described in **[docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)**. Without them, Gmail works with an app password and every other provider works anyway; only Microsoft accounts need an ID.
 
 ### Provider notes
 
@@ -54,7 +53,7 @@ Without it, Gmail still works with an app password, and every other provider wor
 
 ## Privacy
 
-- Everything runs on your computer. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings.
+- Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings.
 - Mail is cached in a local SQLite database in `%LOCALAPPDATA%\redpanda`.
 - Passwords and tokens are encrypted (ChaCha20-Poly1305) with a key kept in the Windows Credential Manager. They never reach the user interface or log files. See [ADR 0002](docs/adr/0002-secrets-encrypted-in-sqlite.md).
 - No telemetry.

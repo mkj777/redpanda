@@ -22,7 +22,7 @@ The frontend never talks to a mail server. It reads data through Tauri commands 
 
 - `providers.rs`: built-in table of well-known providers (hosts, ports, auth type, hints, whether the server stores sent mail itself).
 - `discovery.rs`: resolves server settings from an email address. The chain stops at the first hit: provider table, MX classification (Google Workspace, Microsoft 365), Mozilla ISPDB / autoconfig XML, RFC 6186 SRV records, `imap.`/`smtp.` guessing with a TLS probe. The manual form is the last fallback.
-- `oauth.rs`: authorization code flow with PKCE in the system browser. A loopback listener on `127.0.0.1:<random port>` receives the redirect. Tokens are refreshed before every IMAP/SMTP login. Client IDs come from `%APPDATA%\redpanda\oauth.json` or environment variables, never from the repository.
+- `oauth.rs`: authorization code flow with PKCE in the system browser. A loopback listener on `127.0.0.1:<random port>` receives the redirect. Tokens are refreshed before every IMAP/SMTP login. Client IDs come from environment variables, `%APPDATA%\redpanda\oauth.json` or, in release builds, from CI secrets compiled in with `option_env!` (see ADR 0004). They are never in the repository.
 - `secrets.rs`: a random 256-bit key lives in the Windows Credential Manager. Passwords and tokens are encrypted with ChaCha20-Poly1305 and stored in SQLite (see ADR 0002).
 
 ### `store/`

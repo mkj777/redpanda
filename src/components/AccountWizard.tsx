@@ -18,6 +18,7 @@ import { useUi } from "@/stores/ui";
 import { Button, Dialog, Field, Input, Select, Spinner } from "./ui";
 
 export const SETUP_GUIDE_URL = "https://github.com/mkj777/redpanda/blob/main/docs/OAUTH_SETUP.md";
+const GOOGLE_APP_PASSWORDS_URL = "https://myaccount.google.com/apppasswords";
 
 const emptyServer = (port: number, security: Security): ServerConfig => ({ host: "", port, security });
 
@@ -119,10 +120,12 @@ export function AccountWizard() {
 
   const oauthProvider: OAuthProvider | null =
     found?.authType === "oauth_google" ? "google" : found?.authType === "oauth_microsoft" ? "microsoft" : null;
-  const showOAuth = oauthProvider && !usePassword;
   const providerLabel = oauthProvider === "google" ? "Google" : "Microsoft";
   const oauthConfigured = oauthProvider ? !!oauth?.[oauthProvider] : false;
-  const appPassword = found?.authType === "app_password" || (oauthProvider !== null && usePassword);
+  // Without a client ID, go straight to the app password where the provider allows one.
+  const passwordOnly = oauthProvider !== null && oauth !== null && !oauthConfigured && !!found?.allowPassword;
+  const showOAuth = oauthProvider && !usePassword && !passwordOnly;
+  const appPassword = found?.authType === "app_password" || (oauthProvider !== null && !showOAuth);
 
   const submit = async (auth: NewAccountInput["auth"]) => {
     setError(null);
@@ -208,7 +211,17 @@ export function AccountWizard() {
             {found.hint && !showOAuth && (
               <div className="flex gap-2 rounded-md border border-line bg-bg p-2.5 text-[13px] text-muted">
                 <Info size={14} className="mt-0.5 shrink-0" />
-                <span>{t(found.hint)}</span>
+                <span>
+                  {t(found.hint)}
+                  {oauthProvider === "google" && (
+                    <>
+                      {" "}
+                      <button type="button" className="text-accent hover:underline" onClick={() => openExternal(GOOGLE_APP_PASSWORDS_URL)}>
+                        {t("wizard.createAppPassword")}
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
             )}
 
@@ -235,6 +248,9 @@ export function AccountWizard() {
                     </Button>
                   </div>
                 )}
+                {oauthProvider === "google" && oauthConfigured && (
+                  <p className="text-[13px] text-muted">{t("wizard.googleUnverified")}</p>
+                )}
                 {found.allowPassword && !busy && (
                   <button type="button" className="self-start text-[13px] text-muted hover:text-fg" onClick={() => setUsePassword(true)}>
                     {t("wizard.useAppPassword")}
@@ -253,7 +269,7 @@ export function AccountWizard() {
                     disabled={!!busy}
                   />
                 </Field>
-                {oauthProvider && (
+                {oauthProvider && oauthConfigured && (
                   <button type="button" className="self-start text-[13px] text-muted hover:text-fg" onClick={() => setUsePassword(false)}>
                     {t("wizard.useOAuth", { provider: providerLabel })}
                   </button>

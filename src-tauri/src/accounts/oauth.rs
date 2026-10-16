@@ -1,5 +1,6 @@
 //! OAuth 2.0 authorization code flow with PKCE, using the system browser and a loopback
-//! redirect on 127.0.0.1. Client IDs are configured by the user (see ADR 0003).
+//! redirect on 127.0.0.1. Release builds ship the project's client IDs, local config can
+//! replace them (see ADR 0004).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -91,41 +92,43 @@ impl OAuthConfig {
         dirs::config_dir().map(|d| d.join("redpanda").join("oauth.json"))
     }
 
-    /// Reads `%APPDATA%\redpanda\oauth.json`, then applies environment overrides.
+    /// Client IDs compiled into release builds from CI secrets (see ADR 0004).
+    fn bundled() -> OAuthConfig {
+        OAuthConfig {
+            google: creds(
+                option_env!("REDPANDA_GOOGLE_CLIENT_ID"),
+                option_env!("REDPANDA_GOOGLE_CLIENT_SECRET"),
+            ),
+            microsoft: creds(option_env!("REDPANDA_MICROSOFT_CLIENT_ID"), None),
+        }
+    }
+
+    /// Environment variables win over `%APPDATA%\redpanda\oauth.json`, which wins over the
+    /// IDs bundled at build time.
     pub fn load() -> OAuthConfig {
-        let mut cfg: OAuthConfig = Self::config_path()
+        let file: OAuthConfig = Self::config_path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
-        if let Some(id) = env("REDPANDA_GOOGLE_CLIENT_ID") {
-            cfg.google = Some(ClientCreds {
-                client_id: id,
-                client_secret: env("REDPANDA_GOOGLE_CLIENT_SECRET")
-                    .or_else(|| cfg.google.as_ref().and_then(|g| g.client_secret.clone())),
-            });
-        }
-        if let Some(id) = env("REDPANDA_MICROSOFT_CLIENT_ID") {
-            cfg.microsoft = Some(ClientCreds {
-                client_id: id,
-                client_secret: None,
-            });
-        }
-        // Treat the placeholder values from oauth.example.json as missing.
-        let real = |c: &Option<ClientCreds>| {
-            c.as_ref().is_some_and(|c| {
-                !c.client_id.trim().is_empty()
-                    && !c.client_id.starts_with("YOUR_")
-                    && !c.client_id.starts_with("00000000-")
-            })
+        let env = |k: &str| std::env::var(k).ok();
+        let runtime = OAuthConfig {
+            google: creds(
+                env("REDPANDA_GOOGLE_CLIENT_ID").as_deref(),
+                env("REDPANDA_GOOGLE_CLIENT_SECRET").as_deref(),
+            ),
+            microsoft: creds(env("REDPANDA_MICROSOFT_CLIENT_ID").as_deref(), None),
         };
-        if !real(&cfg.google) {
-            cfg.google = None;
+        Self::merge([runtime, file, Self::bundled()])
+    }
+
+    /// Takes each provider from the first source that has a real client ID.
+    fn merge(sources: [OAuthConfig; 3]) -> OAuthConfig {
+        let [a, b, c] = sources;
+        let pick = |list: [Option<ClientCreds>; 3]| list.into_iter().flatten().find(is_real);
+        OAuthConfig {
+            google: pick([a.google, b.google, c.google]),
+            microsoft: pick([a.microsoft, b.microsoft, c.microsoft]),
         }
-        if !real(&cfg.microsoft) {
-            cfg.microsoft = None;
-        }
-        cfg
     }
 
     pub fn creds(&self, p: OAuthProvider) -> Result<&ClientCreds> {
@@ -135,6 +138,20 @@ impl OAuthConfig {
         }
         .ok_or_else(|| AppError::OAuthNotConfigured(p.name().into()))
     }
+}
+
+fn creds(id: Option<&str>, secret: Option<&str>) -> Option<ClientCreds> {
+    let non_empty = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).map(String::from);
+    Some(ClientCreds {
+        client_id: non_empty(id)?,
+        client_secret: non_empty(secret),
+    })
+}
+
+/// Treats empty IDs and the placeholders from oauth.example.json as missing.
+fn is_real(c: &ClientCreds) -> bool {
+    let id = c.client_id.trim();
+    !id.is_empty() && !id.starts_with("YOUR_") && !id.starts_with("00000000-")
 }
 
 pub struct Pkce {
@@ -428,6 +445,27 @@ mod tests {
         let p = pkce();
         assert_eq!(p.verifier.len(), 43);
         assert_eq!(pkce_challenge(&p.verifier), p.challenge);
+    }
+
+    #[test]
+    fn merges_sources_in_order() {
+        let cfg = |g: Option<&str>, m: Option<&str>| OAuthConfig {
+            google: creds(g, Some("secret")),
+            microsoft: creds(m, None),
+        };
+        let merged = OAuthConfig::merge([
+            cfg(None, Some(" ")),
+            cfg(Some("YOUR_CLIENT_ID.apps.googleusercontent.com"), Some("file-ms")),
+            cfg(Some("bundled-g"), Some("bundled-ms")),
+        ]);
+        let google = merged.google.unwrap();
+        assert_eq!(google.client_id, "bundled-g");
+        assert_eq!(google.client_secret.as_deref(), Some("secret"));
+        assert_eq!(merged.microsoft.unwrap().client_id, "file-ms");
+
+        let empty = OAuthConfig::merge([cfg(None, None), cfg(None, None), cfg(Some(""), None)]);
+        assert!(empty.google.is_none() && empty.microsoft.is_none());
+        assert!(creds(Some("id"), Some("")).unwrap().client_secret.is_none());
     }
 
     #[test]

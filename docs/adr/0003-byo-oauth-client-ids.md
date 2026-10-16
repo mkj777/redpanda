@@ -1,6 +1,6 @@
 # 0003: Bring your own OAuth client IDs
 
-Status: accepted
+Status: superseded by [0004](0004-bundled-oauth-client-ids.md)
 
 ## Context
 

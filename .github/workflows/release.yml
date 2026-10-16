@@ -1,0 +1,37 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the installers and attach them to a draft release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Compiled into the binary, see docs/adr/0004-bundled-oauth-client-ids.md.
+          REDPANDA_GOOGLE_CLIENT_ID: ${{ secrets.REDPANDA_GOOGLE_CLIENT_ID }}
+          REDPANDA_GOOGLE_CLIENT_SECRET: ${{ secrets.REDPANDA_GOOGLE_CLIENT_SECRET }}
+          REDPANDA_MICROSOFT_CLIENT_ID: ${{ secrets.REDPANDA_MICROSOFT_CLIENT_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: redpanda ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false

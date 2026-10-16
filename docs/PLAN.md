@@ -40,6 +40,8 @@ Each milestone is usable on its own and lands on `main`.
 - HTML compose
 - QRESYNC for faster flag and deletion sync on large folders
 - Signed release builds and auto-update
+- Google verification (CASA) for the Gmail client once redpanda gets close to 100 Gmail users, see [ADR 0004](adr/0004-bundled-oauth-client-ids.md)
+- Microsoft publisher verification to drop the "unverified" label in the consent dialog
 
 ## Verification
 
@@ -49,4 +51,4 @@ Each milestone is usable on its own and lands on `main`.
 - Manual end-to-end with `pnpm tauri dev` against a Gmail, an Outlook and a GMX account.
 - `pnpm tauri build` produces a working MSI/NSIS installer.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module layout and [OAUTH_SETUP.md](OAUTH_SETUP.md) for registering your own OAuth clients.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module layout and [OAUTH_SETUP.md](OAUTH_SETUP.md) for registering the OAuth clients.
