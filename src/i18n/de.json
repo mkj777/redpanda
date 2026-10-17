@@ -160,11 +160,11 @@
     "added": "{{email}} hinzugefügt. Die Synchronisierung läuft."
   },
   "hint": {
-    "google_app_password": "Für die Anmeldung mit Passwort brauchst du die Bestätigung in zwei Schritten und ein App-Passwort aus deinem Google-Konto.",
+    "google_app_password": "Für die Anmeldung mit Passwort brauchst du die Bestätigung in zwei Schritten und ein <url>App-Passwort aus deinem Google-Konto</url>.",
     "enable_imap_gmx": "Aktiviere zuerst den POP3/IMAP-Abruf in den Einstellungen von GMX.",
     "enable_imap_webde": "Aktiviere zuerst den POP3/IMAP-Abruf in den Einstellungen von WEB.DE.",
-    "icloud_app_password": "iCloud braucht ein App-spezifisches Passwort. Du kannst es unter account.apple.com erstellen.",
-    "yahoo_app_password": "Yahoo braucht ein App-Passwort. Du kannst es in den Sicherheitseinstellungen deines Yahoo-Kontos erstellen.",
+    "icloud_app_password": "iCloud braucht ein App-spezifisches Passwort. Du kannst es unter <url>account.apple.com</url> erstellen.",
+    "yahoo_app_password": "Yahoo braucht ein App-Passwort. Du kannst es in den <url>Sicherheitseinstellungen deines Yahoo-Kontos</url> erstellen.",
     "tonline_mail_password": "Verwende dein separates E-Mail-Passwort, nicht das Passwort deines Telekom-Logins."
   },
   "settings": {

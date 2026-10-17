@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, Info } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import {
   api,
   openExternal,
@@ -18,7 +18,12 @@ import { useUi } from "@/stores/ui";
 import { Button, Dialog, Field, Input, Select, Spinner } from "./ui";
 
 export const SETUP_GUIDE_URL = "https://github.com/mkj777/redpanda/blob/main/docs/OAUTH_SETUP.md";
-const GOOGLE_APP_PASSWORDS_URL = "https://myaccount.google.com/apppasswords";
+/** Where to create the app password a provider hint asks for. */
+const HINT_LINKS: Record<string, string> = {
+  "hint.google_app_password": "https://myaccount.google.com/apppasswords",
+  "hint.icloud_app_password": "https://account.apple.com/account/manage",
+  "hint.yahoo_app_password": "https://login.yahoo.com/myaccount/security/app-password",
+};
 
 const emptyServer = (port: number, security: Security): ServerConfig => ({ host: "", port, security });
 
@@ -205,15 +210,20 @@ export function AccountWizard() {
               <div className="flex gap-2 rounded-md border border-line bg-bg p-2.5 text-[13px] text-muted">
                 <Info size={14} className="mt-0.5 shrink-0" />
                 <span>
-                  {t(found.hint)}
-                  {oauthProvider === "google" && (
-                    <>
-                      {" "}
-                      <button type="button" className="text-accent hover:underline" onClick={() => openExternal(GOOGLE_APP_PASSWORDS_URL)}>
-                        {t("wizard.createAppPassword")}
-                      </button>
-                    </>
-                  )}
+                  <Trans
+                    i18nKey={found.hint}
+                    components={{
+                      url: HINT_LINKS[found.hint] ? (
+                        <button
+                          type="button"
+                          className="text-accent hover:underline"
+                          onClick={() => openExternal(HINT_LINKS[found.hint!])}
+                        />
+                      ) : (
+                        <span />
+                      ),
+                    }}
+                  />
                 </span>
               </div>
             )}

@@ -160,11 +160,11 @@
     "added": "{{email}} added. Syncing now."
   },
   "hint": {
-    "google_app_password": "Signing in with a password needs 2-step verification and an app password from your Google account.",
+    "google_app_password": "Signing in with a password needs 2-step verification and an <url>app password from your Google account</url>.",
     "enable_imap_gmx": "Turn on POP3/IMAP access in the GMX web mail settings first.",
     "enable_imap_webde": "Turn on POP3/IMAP access in the WEB.DE web mail settings first.",
-    "icloud_app_password": "iCloud needs an app-specific password. Create one at account.apple.com.",
-    "yahoo_app_password": "Yahoo needs an app password. Create one in your Yahoo account security settings.",
+    "icloud_app_password": "iCloud needs an app-specific password. Create one at <url>account.apple.com</url>.",
+    "yahoo_app_password": "Yahoo needs an app password. Create one in your <url>Yahoo account security settings</url>.",
     "tonline_mail_password": "Use your separate email password, not the password of your Telekom login."
   },
   "settings": {
