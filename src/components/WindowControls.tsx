@@ -5,7 +5,7 @@ import { api, isTauri, listen, type CaptionState } from "@/lib/ipc";
 import { cn } from "@/lib/format";
 
 // Segoe Fluent Icons on Windows 11, Segoe MDL2 Assets on Windows 10: same code points as the system buttons.
-const GLYPH = { minimize: "", maximize: "", restore: "", close: "" };
+const GLYPH = { minimize: "\uE921", maximize: "\uE922", restore: "\uE923", close: "\uE8BB" };
 
 const appWindow = () => getCurrentWindow();
 
@@ -43,8 +43,11 @@ const CaptionButton = forwardRef<HTMLButtonElement, CaptionButtonProps>(function
   );
 });
 
-/** Replaces the Windows title bar: drag area with the app name and the three caption buttons. */
-export function TitleBar() {
+/**
+ * Minimize, maximize and close in the top right corner of the app, over the right end of the first
+ * toolbar row. Panes keep `--window-controls` free there and mark their header rows with `drag`.
+ */
+export function WindowControls() {
   const { t } = useTranslation();
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
@@ -94,25 +97,20 @@ export function TitleBar() {
   };
 
   return (
-    <header
+    <div
       data-inactive={focused ? undefined : ""}
-      className="group relative z-[45] flex h-8 shrink-0 items-center border-b border-line bg-sidebar"
+      // Above dialog overlays, so the window can still be closed or moved aside while one is open.
+      className="no-drag group fixed right-0 top-0 z-[45] flex h-[47px] w-[var(--window-controls)]"
     >
-      <div className="drag flex h-full min-w-0 flex-1 items-center gap-2 pl-3">
-        <img src="/icon.svg" alt="" className="size-4 shrink-0 group-data-[inactive]:opacity-60" />
-        <span className="truncate text-xs text-muted group-data-[inactive]:text-faint">redpanda</span>
-      </div>
-      <div className="no-drag flex h-full">
-        <CaptionButton label={t("window.minimize")} glyph={GLYPH.minimize} onClick={run((w) => w.minimize())} />
-        <CaptionButton
-          ref={maxRef}
-          label={maximized ? t("window.restore") : t("window.maximize")}
-          glyph={maximized ? GLYPH.restore : GLYPH.maximize}
-          state={maxState}
-          onClick={run((w) => w.toggleMaximize())}
-        />
-        <CaptionButton close label={t("window.close")} glyph={GLYPH.close} onClick={run((w) => w.close())} />
-      </div>
-    </header>
+      <CaptionButton label={t("window.minimize")} glyph={GLYPH.minimize} onClick={run((w) => w.minimize())} />
+      <CaptionButton
+        ref={maxRef}
+        label={maximized ? t("window.restore") : t("window.maximize")}
+        glyph={maximized ? GLYPH.restore : GLYPH.maximize}
+        state={maxState}
+        onClick={run((w) => w.toggleMaximize())}
+      />
+      <CaptionButton close label={t("window.close")} glyph={GLYPH.close} onClick={run((w) => w.close())} />
+    </div>
   );
 }
