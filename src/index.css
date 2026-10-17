@@ -77,6 +77,14 @@ body {
   user-select: none;
 }
 
+/* Native title bar behaviour from WebView2: drag, double-click to maximize, system menu. */
+.drag {
+  app-region: drag;
+}
+.no-drag {
+  app-region: no-drag;
+}
+
 input,
 textarea,
 [contenteditable],

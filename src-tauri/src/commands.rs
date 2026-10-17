@@ -189,3 +189,10 @@ pub fn delete_draft(state: AppState<'_>, id: i64) -> Result<()> {
 pub fn suggest_contacts(state: AppState<'_>, prefix: String) -> Result<Vec<Address>> {
     state.suggest_contacts(&prefix)
 }
+
+/// The page reports where it drew the maximize button, so the snap layout overlay can sit on it.
+#[tauri::command]
+pub fn set_maximize_rect(app: AppHandle, rect: Option<crate::titlebar::ButtonRect>) -> Result<()> {
+    app.run_on_main_thread(move || crate::titlebar::set_rect(rect))
+        .map_err(|e| AppError::Other(e.to_string()))
+}

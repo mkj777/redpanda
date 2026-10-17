@@ -225,7 +225,19 @@ export const api = {
   getDraft: (id: number) => call<Draft>("get_draft", { id }),
   deleteDraft: (id: number) => call<void>("delete_draft", { id }),
   suggestContacts: (prefix: string) => call<Address[]>("suggest_contacts", { prefix }),
+  setMaximizeRect: (rect: ButtonRect | null) => call<void>("set_maximize_rect", { rect }),
 };
+
+/** Logical pixels; `right` is the distance from the right edge of the window. */
+export interface ButtonRect {
+  right: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Mouse state of the maximize button, reported by the native snap layout overlay. */
+export type CaptionState = "none" | "hover" | "press";
 
 export interface MailChanged {
   accountId: string;
@@ -247,6 +259,7 @@ type Events = {
   "mail:changed": MailChanged;
   "sync:status": SyncStatusEvent;
   "action:failed": ActionFailed;
+  "titlebar:maximize": CaptionState;
 };
 
 export async function listen<K extends keyof Events>(

@@ -16,6 +16,7 @@ import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
+import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
 import { Button } from "./components/ui";
 
@@ -115,34 +116,39 @@ export default function App() {
 
   return (
     <Tooltip.Provider>
-      {!ready ? null : hasAccounts ? (
-        <PanelGroup direction="horizontal" autoSaveId="redpanda-layout" className="h-full">
-          <Panel
-            id="sidebar"
-            order={1}
-            defaultSize={Math.max(18, sidebarMin)}
-            minSize={sidebarMin}
-            maxSize={32}
-            collapsible
-            collapsedSize={railPercent}
-            // Derived from the size so a collapsed layout restored from storage shows the rail too.
-            onResize={(size) => setCollapsed(size <= railPercent + 0.5)}
-            className="border-r-0"
-          >
-            <Sidebar collapsed={collapsed} />
-          </Panel>
-          <ResizeHandle />
-          <Panel id="list" order={2} defaultSize={Math.max(30, listMin)} minSize={listMin}>
-            <MessageList />
-          </Panel>
-          <ResizeHandle />
-          <Panel id="reader" order={3} defaultSize={52} minSize={28}>
-            <ReadingPane />
-          </Panel>
-        </PanelGroup>
-      ) : (
-        <Start />
-      )}
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <main className="min-h-0 flex-1">
+          {!ready ? null : hasAccounts ? (
+            <PanelGroup direction="horizontal" autoSaveId="redpanda-layout" className="h-full">
+              <Panel
+                id="sidebar"
+                order={1}
+                defaultSize={Math.max(18, sidebarMin)}
+                minSize={sidebarMin}
+                maxSize={32}
+                collapsible
+                collapsedSize={railPercent}
+                // Derived from the size so a collapsed layout restored from storage shows the rail too.
+                onResize={(size) => setCollapsed(size <= railPercent + 0.5)}
+                className="border-r-0"
+              >
+                <Sidebar collapsed={collapsed} />
+              </Panel>
+              <ResizeHandle />
+              <Panel id="list" order={2} defaultSize={Math.max(30, listMin)} minSize={listMin}>
+                <MessageList />
+              </Panel>
+              <ResizeHandle />
+              <Panel id="reader" order={3} defaultSize={52} minSize={28}>
+                <ReadingPane />
+              </Panel>
+            </PanelGroup>
+          ) : (
+            <Start />
+          )}
+        </main>
+      </div>
       <Composer />
       <AccountWizard />
       <SettingsDialog />

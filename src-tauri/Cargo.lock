@@ -3585,6 +3585,7 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots",
+ "windows",
 ]
 
 [[package]]

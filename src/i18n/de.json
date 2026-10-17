@@ -7,6 +7,12 @@
   "start": {
     "text": "Füge ein E-Mail-Konto hinzu, um loszulegen."
   },
+  "window": {
+    "minimize": "Minimieren",
+    "maximize": "Maximieren",
+    "restore": "Verkleinern",
+    "close": "Schließen"
+  },
   "nav": {
     "label": "Ordner",
     "compose": "Neue Nachricht",

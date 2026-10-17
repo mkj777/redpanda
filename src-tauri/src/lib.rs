@@ -8,10 +8,12 @@ pub mod send;
 pub mod service;
 pub mod store;
 pub mod sync;
+mod titlebar;
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
 use crate::accounts::oauth::OAuthConfig;
 use crate::accounts::secrets::Secrets;
@@ -44,7 +46,12 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            // The window is undecorated on purpose, a saved state from before must not bring the frame back.
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -56,7 +63,18 @@ pub fn run() {
             // Workers use tokio::spawn, so start them inside Tauri's runtime.
             tauri::async_runtime::block_on(async { state.sync.start_all() })?;
             app.manage(state);
+            if let Some(window) = app.get_webview_window("main") {
+                titlebar::install(app.handle(), &window);
+            }
             Ok(())
+        })
+        .on_window_event(|_, event| {
+            if matches!(
+                event,
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                titlebar::place();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_accounts,
@@ -88,6 +106,7 @@ pub fn run() {
             commands::get_draft,
             commands::delete_draft,
             commands::suggest_contacts,
+            commands::set_maximize_rect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running redpanda");

@@ -7,6 +7,12 @@
   "start": {
     "text": "Add an email account to get started."
   },
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore down",
+    "close": "Close"
+  },
   "nav": {
     "label": "Folders",
     "compose": "New message",
