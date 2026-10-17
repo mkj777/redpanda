@@ -15,7 +15,7 @@
     "starred": "Starred",
     "drafts": "Drafts",
     "allSent": "Sent",
-    "allJunk": "Junk",
+    "allJunk": "Spam",
     "allTrash": "Trash",
     "addAccount": "Add account",
     "settings": "Settings"
@@ -25,7 +25,7 @@
     "sent": "Sent",
     "drafts": "Drafts",
     "trash": "Trash",
-    "junk": "Junk",
+    "junk": "Spam",
     "archive": "Archive",
     "all": "All mail",
     "flagged": "Starred",
@@ -196,7 +196,7 @@
       "dark": "Dark"
     },
     "threads": "Group messages into conversations",
-    "autoLoadImages": "Always load external images (except in Junk)"
+    "autoLoadImages": "Always load external images (except in Spam)"
   },
   "shortcuts": {
     "nav": "Next or previous message",
