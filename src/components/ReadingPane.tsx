@@ -244,8 +244,7 @@ export function ReadingPane() {
 
   if (!summary) {
     return (
-      <section className="relative flex h-full items-center justify-center bg-bg text-sm text-muted">
-        <div className="drag absolute inset-x-0 top-0 h-12" />
+      <section className="flex h-full items-center justify-center bg-bg text-sm text-muted">
         <span className="flex items-center gap-2">
           <Mail size={16} />
           {t("reader.empty")}
@@ -257,39 +256,36 @@ export function ReadingPane() {
   const latest = thread[thread.length - 1] ?? summary;
   return (
     <section className="flex h-full flex-col bg-bg">
-      {/* The window controls sit over the right end of this row. */}
-      <div className="drag flex h-12 shrink-0 items-center border-b border-line bg-surface pl-2 pr-[calc(var(--window-controls)+0.5rem)]">
-        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-          <IconButton label={t("action.reply")} shortcut="R" onClick={() => reply("reply", latest)}>
-            <Reply size={16} />
-          </IconButton>
-          <IconButton label={t("action.replyAll")} shortcut="A" onClick={() => reply("replyAll", latest)}>
-            <ReplyAll size={16} />
-          </IconButton>
-          <IconButton label={t("action.forward")} shortcut="F" onClick={() => reply("forward", latest)}>
-            <Forward size={16} />
-          </IconButton>
-          <span className="mx-1.5 h-5 w-px bg-line" />
-          <IconButton label={t("action.archive")} shortcut="E" onClick={() => archive([summary])}>
-            <Archive size={16} />
-          </IconButton>
-          <IconButton label={t("action.delete")} shortcut="#" onClick={() => remove([summary])}>
-            <Trash2 size={16} />
-          </IconButton>
-          <MoveMenu summary={summary} />
-          <span className="flex-1" />
-          <IconButton
-            label={summary.flagged ? t("action.unstar") : t("action.star")}
-            shortcut="S"
-            active={summary.flagged}
-            onClick={() => toggleFlagged([summary])}
-          >
-            <Star size={16} className={cn(summary.flagged && "fill-accent")} />
-          </IconButton>
-          <IconButton label={summary.seen ? t("action.markUnread") : t("action.markRead")} shortcut="U" onClick={() => toggleSeen([summary])}>
-            <Mail size={16} />
-          </IconButton>
-        </div>
+      <div className="flex h-12 shrink-0 items-center gap-0.5 border-b border-line bg-surface px-2">
+        <IconButton label={t("action.reply")} shortcut="R" onClick={() => reply("reply", latest)}>
+          <Reply size={16} />
+        </IconButton>
+        <IconButton label={t("action.replyAll")} shortcut="A" onClick={() => reply("replyAll", latest)}>
+          <ReplyAll size={16} />
+        </IconButton>
+        <IconButton label={t("action.forward")} shortcut="F" onClick={() => reply("forward", latest)}>
+          <Forward size={16} />
+        </IconButton>
+        <span className="mx-1.5 h-5 w-px bg-line" />
+        <IconButton label={t("action.archive")} shortcut="E" onClick={() => archive([summary])}>
+          <Archive size={16} />
+        </IconButton>
+        <IconButton label={t("action.delete")} shortcut="#" onClick={() => remove([summary])}>
+          <Trash2 size={16} />
+        </IconButton>
+        <MoveMenu summary={summary} />
+        <span className="flex-1" />
+        <IconButton
+          label={summary.flagged ? t("action.unstar") : t("action.star")}
+          shortcut="S"
+          active={summary.flagged}
+          onClick={() => toggleFlagged([summary])}
+        >
+          <Star size={16} className={cn(summary.flagged && "fill-accent")} />
+        </IconButton>
+        <IconButton label={summary.seen ? t("action.markUnread") : t("action.markRead")} shortcut="U" onClick={() => toggleSeen([summary])}>
+          <Mail size={16} />
+        </IconButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[860px] px-6 pb-10">

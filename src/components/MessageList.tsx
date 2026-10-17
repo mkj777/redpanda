@@ -186,7 +186,7 @@ export function MessageList() {
 
   return (
     <section className="flex h-full flex-col bg-surface" aria-label={title}>
-      <div className="drag flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
         <div className="relative flex-1">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
           <input

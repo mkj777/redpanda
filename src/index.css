@@ -19,8 +19,6 @@
   --accent-text: #ffffff;
   --danger: #b91c1c;
   --mail-bg: #ffffff;
-  /* Width of the window controls in the top right corner, three 46 px caption buttons. */
-  --window-controls: 138px;
   color-scheme: light;
 }
 
@@ -79,13 +77,11 @@ body {
   user-select: none;
 }
 
-/* The header rows double as the title bar. WebView2 treats drag areas as a native caption: drag,
-   double-click to maximize, system menu. Controls inside them must stay clickable. */
+/* Native title bar behaviour from WebView2: drag, double-click to maximize, system menu. */
 .drag {
   app-region: drag;
 }
-.no-drag,
-.drag :is(button, input, textarea, select, a, [role="button"]) {
+.no-drag {
   app-region: no-drag;
 }
 

@@ -43,11 +43,8 @@ const CaptionButton = forwardRef<HTMLButtonElement, CaptionButtonProps>(function
   );
 });
 
-/**
- * Minimize, maximize and close in the top right corner of the app, over the right end of the first
- * toolbar row. Panes keep `--window-controls` free there and mark their header rows with `drag`.
- */
-export function WindowControls() {
+/** Replaces the Windows title bar: an empty drag area and the three caption buttons. */
+export function TitleBar() {
   const { t } = useTranslation();
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
@@ -97,20 +94,22 @@ export function WindowControls() {
   };
 
   return (
-    <div
+    <header
       data-inactive={focused ? undefined : ""}
-      // Above dialog overlays, so the window can still be closed or moved aside while one is open.
-      className="no-drag group fixed right-0 top-0 z-[45] flex h-[47px] w-[var(--window-controls)]"
+      className="group relative z-[45] flex h-8 shrink-0 items-center border-b border-line bg-sidebar"
     >
-      <CaptionButton label={t("window.minimize")} glyph={GLYPH.minimize} onClick={run((w) => w.minimize())} />
-      <CaptionButton
-        ref={maxRef}
-        label={maximized ? t("window.restore") : t("window.maximize")}
-        glyph={maximized ? GLYPH.restore : GLYPH.maximize}
-        state={maxState}
-        onClick={run((w) => w.toggleMaximize())}
-      />
-      <CaptionButton close label={t("window.close")} glyph={GLYPH.close} onClick={run((w) => w.close())} />
-    </div>
+      <div className="drag h-full flex-1" />
+      <div className="no-drag flex h-full">
+        <CaptionButton label={t("window.minimize")} glyph={GLYPH.minimize} onClick={run((w) => w.minimize())} />
+        <CaptionButton
+          ref={maxRef}
+          label={maximized ? t("window.restore") : t("window.maximize")}
+          glyph={maximized ? GLYPH.restore : GLYPH.maximize}
+          state={maxState}
+          onClick={run((w) => w.toggleMaximize())}
+        />
+        <CaptionButton close label={t("window.close")} glyph={GLYPH.close} onClick={run((w) => w.close())} />
+      </div>
+    </header>
   );
 }

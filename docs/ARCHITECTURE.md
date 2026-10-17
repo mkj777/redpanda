@@ -59,13 +59,13 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 
 ### `titlebar.rs`
 
-The window has no native frame (`decorations: false`) and no title row: the first row of each pane is the drag area, and `WindowControls.tsx` puts the caption buttons into the top right corner. Snap layouts need a native child window over the maximize button, see [ADR 0005](adr/0005-custom-title-bar.md).
+The window has no native frame (`decorations: false`); the page draws the title bar. Snap layouts need a native child window over the maximize button, see [ADR 0005](adr/0005-custom-title-bar.md).
 
 ## Frontend (`src`)
 
 - `lib/ipc.ts`: typed wrappers around `invoke` and `listen`.
 - `stores/`: Zustand stores for accounts, folders, messages and UI state.
-- `components/`: WindowControls, Sidebar, MessageList (virtualized), ReadingPane, Composer, AccountWizard, Settings.
+- `components/`: TitleBar, Sidebar, MessageList (virtualized), ReadingPane, Composer, AccountWizard, Settings.
 - `i18n/`: `en.json` and `de.json` with identical keys.
 
 ## HTML safety

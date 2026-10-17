@@ -150,13 +150,13 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
 
   return (
     <nav className="flex h-full flex-col bg-sidebar" aria-label={t("nav.label")}>
-      <div className={cn("drag flex h-12 shrink-0 items-center border-b border-line", collapsed ? "justify-center" : "px-3")}>
+      <div className={cn("flex h-12 shrink-0 items-center border-b border-line", collapsed ? "justify-center" : "px-3")}>
         {collapsed ? (
           <IconButton label={t("nav.compose")} shortcut="C" onClick={() => compose()}>
             <PenSquare size={17} />
           </IconButton>
         ) : (
-          <Button variant="primary" className="w-full" onClick={() => compose()}>
+          <Button variant="soft" className="w-full" onClick={() => compose()}>
             <PenSquare size={15} />
             {t("nav.compose")}
           </Button>

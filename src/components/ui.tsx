@@ -4,10 +4,11 @@ import { X } from "lucide-react";
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/format";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "soft" | "secondary" | "ghost" | "danger";
 
 const variants: Record<Variant, string> = {
   primary: "bg-accent text-accent-fg hover:bg-accent-hover border border-transparent",
+  soft: "bg-accent/12 text-accent hover:bg-accent/18 border border-transparent",
   secondary: "bg-surface text-fg border border-line-strong hover:bg-hover",
   ghost: "text-fg hover:bg-hover border border-transparent",
   danger: "bg-surface text-danger border border-line-strong hover:bg-hover",
