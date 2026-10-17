@@ -301,15 +301,25 @@ pub async fn refresh(
     token_request(http, provider, &form).await
 }
 
-const DONE_PAGE: &str = "<!doctype html><meta charset=\"utf-8\"><title>redpanda</title>\
-<style>body{font:15px system-ui,sans-serif;display:grid;place-items:center;height:90vh;color:#222}\
-@media(prefers-color-scheme:dark){body{background:#151515;color:#ddd}}</style>\
-<div><p><b>Signed in.</b> You can close this tab and return to redpanda.</p>\
-<p><b>Angemeldet.</b> Du kannst diesen Tab schlie\u{df}en und zu redpanda zur\u{fc}ckkehren.</p></div>";
+const PAGE_HEAD: &str = r#"<!doctype html><meta charset="utf-8"><title>redpanda</title>
+<style>
+body{margin:0;font:15px/1.5 system-ui,sans-serif;display:grid;place-items:center;height:100vh;background:#faf8f5;color:#292524;text-align:center}
+@media(prefers-color-scheme:dark){body{background:#161412;color:#e7e5e4}}
+svg{width:88px;height:88px;margin-bottom:12px}
+p{margin:4px 0}
+</style>"#;
 
-const ERROR_PAGE: &str = "<!doctype html><meta charset=\"utf-8\"><title>redpanda</title>\
-<style>body{font:15px system-ui,sans-serif;display:grid;place-items:center;height:90vh}</style>\
-<p>Sign-in failed. Please return to redpanda. / Anmeldung fehlgeschlagen.</p>";
+/// The app icon, inlined so the loopback page needs no second request.
+const ICON: &str = include_str!("../../../public/icon.svg");
+
+fn result_page(ok: bool) -> String {
+    let body = if ok {
+        "<p><b>Signed in.</b> You can close this tab and return to redpanda.</p><p><b>Angemeldet.</b> Du kannst diesen Tab schließen und zu redpanda zurückkehren.</p>"
+    } else {
+        "<p><b>Sign-in failed.</b> Please return to redpanda.</p><p><b>Anmeldung fehlgeschlagen.</b> Bitte kehre zu redpanda zurück.</p>"
+    };
+    format!("{PAGE_HEAD}<div>{ICON}{body}</div>")
+}
 
 /// Runs the full browser sign-in. `open` is called with the authorization URL.
 pub async fn authorize(
@@ -404,7 +414,7 @@ async fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<S
             continue;
         }
         let ok = code.is_some() && param("state").as_deref() == Some(expected_state);
-        let page = if ok { DONE_PAGE } else { ERROR_PAGE };
+        let page = result_page(ok);
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
             page.len()
