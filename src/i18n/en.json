@@ -190,7 +190,8 @@
       "light": "Light",
       "dark": "Dark"
     },
-    "threads": "Group messages into conversations"
+    "threads": "Group messages into conversations",
+    "autoLoadImages": "Always load external images (except in Junk)"
   },
   "shortcuts": {
     "nav": "Next or previous message",

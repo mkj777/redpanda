@@ -212,6 +212,7 @@ export function SettingsDialog() {
               />
             </Field>
             <Switch checked={settings.threads} onChange={settings.setThreads} label={t("settings.threads")} />
+            <Switch checked={settings.autoLoadImages} onChange={settings.setAutoLoadImages} label={t("settings.autoLoadImages")} />
           </div>
         )}
         {tab === "shortcuts" && (

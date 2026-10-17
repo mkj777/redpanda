@@ -101,7 +101,10 @@ function MessageView({ summary, isLast }: { summary: MessageSummary; isLast: boo
   const ownEmails = useMail(useShallow((s) => s.accounts.map((a) => a.email.toLowerCase())));
   const [msg, setMsg] = useState<MessageDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [remote, setRemote] = useState(false);
+  const [allowed, setAllowed] = useState(false);
+  const autoLoad = useSettings((s) => s.autoLoadImages);
+  const inJunk = useMail((s) => s.folders.find((f) => f.id === summary.folderId)?.role === "junk");
+  const remote = allowed || (autoLoad && !inJunk);
 
   useEffect(() => {
     let alive = true;
@@ -112,7 +115,7 @@ function MessageView({ summary, isLast }: { summary: MessageSummary; isLast: boo
         if (!alive) return;
         setMsg(m);
         // Never re-block images the user already allowed for this message.
-        setRemote((r) => r || m.remoteAllowed);
+        setAllowed((r) => r || m.remoteAllowed);
       })
       .catch((e) => alive && setError(String(e?.message ?? e)));
     return () => {
@@ -156,7 +159,7 @@ function MessageView({ summary, isLast }: { summary: MessageSummary; isLast: boo
           </IconButton>
         )}
       </header>
-      {msg.html && msg.hasRemoteContent && !remote && <RemoteBar msg={msg} onAllow={() => setRemote(true)} />}
+      {msg.html && msg.hasRemoteContent && !remote && <RemoteBar msg={msg} onAllow={() => setAllowed(true)} />}
       {msg.html ? <HtmlBody html={msg.html} allowRemote={remote} /> : <TextBody text={msg.text ?? ""} />}
       <Attachments msg={msg} />
     </article>

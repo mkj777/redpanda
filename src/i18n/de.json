@@ -190,7 +190,8 @@
       "light": "Hell",
       "dark": "Dunkel"
     },
-    "threads": "Nachrichten als Konversationen gruppieren"
+    "threads": "Nachrichten als Konversationen gruppieren",
+    "autoLoadImages": "Externe Bilder immer laden (außer im Spam-Ordner)"
   },
   "shortcuts": {
     "nav": "Nächste oder vorherige Nachricht",
