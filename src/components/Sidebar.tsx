@@ -139,9 +139,9 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
   };
 
   const unifiedRows: { view: View; icon: LucideIcon; label: string; count: number; hide?: boolean }[] = [
+    { view: { kind: "unified", which: "starred" }, icon: Star, label: t("nav.starred"), count: 0 },
     { view: { kind: "unified", which: "inbox" }, icon: Inbox, label: t("nav.allInboxes"), count: unified.inboxUnread },
     { view: { kind: "unified", which: "unread" }, icon: Mail, label: t("nav.unread"), count: unified.unread },
-    { view: { kind: "unified", which: "starred" }, icon: Star, label: t("nav.starred"), count: 0 },
     { view: { kind: "drafts" }, icon: FileText, label: t("nav.drafts"), count: unified.drafts },
     { view: { kind: "unified", which: "sent" }, icon: Send, label: t("nav.allSent"), count: 0 },
     { view: { kind: "unified", which: "junk" }, icon: OctagonAlert, label: t("nav.allJunk"), count: 0 },
