@@ -273,29 +273,22 @@ export function AccountWizard() {
 
         {error && <div className="rounded-md border border-danger/40 p-2.5 text-[13px] text-danger">{error}</div>}
 
-        <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
-          {busy && (
-            <span className="mr-auto flex items-center gap-2 text-[13px] text-muted">
-              <Spinner className="size-3.5" />
-              {busy === "browser" ? t("wizard.waitingBrowser") : t("wizard.checking")}
-            </span>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => (busy === "browser" ? api.cancelOauth() : setOpen(false))}
-            disabled={busy === "checking"}
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button type="submit" variant="primary" disabled={showOAuth ? !oauthConfigured || !!busy : !canSubmitPassword}>
-            {showOAuth
-              ? oauthProvider === "google"
-                ? t("wizard.signInGoogle")
-                : t("wizard.signInMicrosoft")
-              : t("wizard.signIn")}
-          </Button>
-        </div>
+        <Button type="submit" variant="primary" disabled={showOAuth ? !oauthConfigured || !!busy : !canSubmitPassword}>
+          {busy && <Spinner className="size-3.5 border-white/40 border-t-white" />}
+          {showOAuth
+            ? oauthProvider === "google"
+              ? t("wizard.signInGoogle")
+              : t("wizard.signInMicrosoft")
+            : t("wizard.signIn")}
+        </Button>
+        {busy === "browser" && (
+          <div className="-mt-1 flex items-center justify-between text-[13px] text-muted">
+            {t("wizard.waitingBrowser")}
+            <Button type="button" size="sm" variant="ghost" onClick={() => api.cancelOauth()}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        )}
       </form>
     </Dialog>
   );
