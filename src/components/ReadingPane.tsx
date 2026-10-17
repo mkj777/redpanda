@@ -216,6 +216,8 @@ export function ReadingPane() {
   const selectedId = useMail((s) => s.selectedId);
   const summary = useMail((s) => s.messages.find((m) => m.id === s.selectedId) ?? null);
   const threads = useSettings((s) => s.threads);
+  // In the unread view a read message drops out of the list, so it is only marked once the user moves on.
+  const markOnLeave = useMail((s) => s.view.kind === "unified" && s.view.which === "unread");
   const [thread, setThread] = useState<MessageSummary[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -233,10 +235,12 @@ export function ReadingPane() {
         setExpanded(new Set([msgs[msgs.length - 1].id, ...unread]));
       })
       .catch(reportError);
-    const timer = setTimeout(() => markSeen(summary), 400);
+    const timer = markOnLeave ? undefined : setTimeout(() => markSeen(summary), 400);
     return () => {
       alive = false;
       clearTimeout(timer);
+      // Runs on every reload of the conversation too, but marks only when another message (or none) is selected.
+      if (markOnLeave && useMail.getState().selectedId !== summary.id) void markSeen(summary);
     };
     // Reload on a different selection or a changed conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
