@@ -177,6 +177,7 @@
     "displayName": "Anzeigename",
     "color": "Farbe",
     "relogin": "Erneut anmelden",
+    "accountMenu": "Kontooptionen",
     "signedIn": "Angemeldet",
     "remove": "Entfernen",
     "removeConfirm": "Entfernt das Konto und die lokale Kopie. Auf dem Server ändert sich nichts.",

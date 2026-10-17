@@ -1,3 +1,5 @@
+import * as Menu from "@radix-ui/react-dropdown-menu";
+import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Account } from "@/lib/ipc";
@@ -6,7 +8,8 @@ import { cn } from "@/lib/format";
 import { useMail } from "@/stores/mail";
 import { useSettings, type Language, type Theme } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
-import { Button, Dialog, Field, Input, Select, Spinner, Switch } from "./ui";
+import { ProviderIcon } from "./ProviderIcon";
+import { Button, Dialog, Field, IconButton, Input, Select, Spinner, Switch } from "./ui";
 
 const COLORS = ["#c2410c", "#2563eb", "#059669", "#7c3aed", "#db2777", "#0891b2", "#ca8a04", "#4b5563"];
 
@@ -40,88 +43,119 @@ function AccountRow({ account }: { account: Account }) {
     }
   };
 
+  const menuItem = "flex h-7 cursor-default items-center gap-2 rounded px-2 text-[13px] outline-none data-[highlighted]:bg-hover";
+  const showStatus = account.status === "error" || account.status === "auth_required" || account.status === "offline";
+
   return (
-    <div className="flex flex-col gap-3 border-b border-line py-4 last:border-b-0">
-      <div className="flex items-center gap-2">
-        <span className="size-2.5 shrink-0 rounded-full" style={{ background: account.color }} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{account.email}</span>
-        <span className={cn("text-xs", account.status === "auth_required" ? "text-danger" : "text-muted")}>
-          {t(`status.${account.status}`)}
-        </span>
-      </div>
-      <div className="grid grid-cols-[1fr_auto] items-end gap-3">
-        <Field label={t("settings.displayName")} htmlFor={`name-${account.id}`}>
-          <Input
-            id={`name-${account.id}`}
+    <div className="border-b border-line py-2.5 last:border-b-0">
+      <div className="flex items-center gap-3">
+        <ProviderIcon account={account} />
+        <div className="min-w-0 flex-1">
+          <input
+            data-inline
+            aria-label={t("settings.displayName")}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => name.trim() !== account.displayName && saveProfile(name.trim(), account.color)}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            className="-ml-1 h-6 w-full rounded border border-transparent bg-transparent px-1 text-sm font-medium text-fg outline-none hover:border-line focus:border-accent"
           />
-        </Field>
-        <div className="flex h-8 items-center gap-1" role="radiogroup" aria-label={t("settings.color")}>
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              role="radio"
-              aria-checked={c === account.color}
-              aria-label={c}
-              onClick={() => saveProfile(name.trim() || account.displayName, c)}
-              className={cn("size-5 rounded-full border-2", c === account.color ? "border-fg" : "border-transparent")}
-              style={{ background: c }}
-            />
-          ))}
+          <div className="truncate text-xs text-muted">{account.email}</div>
         </div>
+        {showStatus && (
+          <span className={cn("shrink-0 text-xs", account.status === "offline" ? "text-muted" : "text-danger")}>
+            {t(`status.${account.status}`)}
+          </span>
+        )}
+        {reauth === "busy" && <Spinner className="size-3.5" />}
+        <Menu.Root>
+          <Menu.Trigger asChild>
+            <IconButton label={t("settings.accountMenu")}>
+              <MoreHorizontal size={16} />
+            </IconButton>
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Content
+              align="end"
+              sideOffset={4}
+              className="z-50 min-w-48 rounded-md border border-line bg-surface p-1 shadow-[0_2px_8px_rgba(0,0,0,0.1)]"
+            >
+              <div className="flex gap-1 px-2 py-1.5" role="radiogroup" aria-label={t("settings.color")}>
+                {COLORS.map((c) => (
+                  <Menu.Item
+                    key={c}
+                    role="radio"
+                    aria-checked={c === account.color}
+                    aria-label={c}
+                    onSelect={() => saveProfile(name.trim() || account.displayName, c)}
+                    className={cn(
+                      "size-4 cursor-default rounded-full border-2 outline-none data-[highlighted]:border-line-strong",
+                      c === account.color ? "!border-fg" : "border-transparent",
+                    )}
+                    style={{ background: c }}
+                  />
+                ))}
+              </div>
+              <Menu.Separator className="my-1 h-px bg-line" />
+              <Menu.Item
+                className={menuItem}
+                disabled={reauth === "busy"}
+                onSelect={() => (isOAuth ? signIn() : setReauth("password"))}
+              >
+                <RefreshCw size={14} className="text-muted" />
+                {t("settings.relogin")}
+              </Menu.Item>
+              <Menu.Item className={cn(menuItem, "text-danger")} onSelect={() => setConfirmRemove(true)}>
+                <Trash2 size={14} />
+                {t("settings.remove")}
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Portal>
+        </Menu.Root>
       </div>
       {reauth === "password" && (
         <form
-          className="flex items-end gap-2"
+          className="mt-2 flex items-center gap-2 pl-11"
           onSubmit={(e) => {
             e.preventDefault();
             if (password) void signIn(password);
           }}
         >
-          <Field label={t("wizard.password")} htmlFor={`pw-${account.id}`} className="flex-1">
-            <Input id={`pw-${account.id}`} type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
-          </Field>
+          <Input
+            type="password"
+            autoFocus
+            aria-label={t("wizard.password")}
+            placeholder={t("wizard.password")}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button type="button" variant="ghost" onClick={() => setReauth(null)}>
+            {t("common.cancel")}
+          </Button>
           <Button type="submit" variant="primary" disabled={!password}>
             {t("common.save")}
           </Button>
         </form>
       )}
-      {error && <div className="text-[13px] text-danger">{error}</div>}
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          disabled={reauth === "busy"}
-          onClick={() => (isOAuth ? signIn() : setReauth(reauth === "password" ? null : "password"))}
-        >
-          {reauth === "busy" && <Spinner className="size-3" />}
-          {t("settings.relogin")}
-        </Button>
-        <span className="flex-1" />
-        {confirmRemove ? (
-          <>
-            <span className="text-xs text-muted">{t("settings.removeConfirm")}</span>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={async () => {
-                await api.removeAccount(account.id);
-                await useMail.getState().refreshAll();
-              }}
-            >
-              {t("settings.remove")}
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" variant="ghost" className="!text-danger" onClick={() => setConfirmRemove(true)}>
+      {error && <div className="mt-1.5 pl-11 text-[13px] text-danger">{error}</div>}
+      {confirmRemove && (
+        <div className="mt-2 flex items-center gap-2 pl-11">
+          <span className="flex-1 text-xs text-muted">{t("settings.removeConfirm")}</span>
+          <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={async () => {
+              await api.removeAccount(account.id);
+              await useMail.getState().refreshAll();
+            }}
+          >
             {t("settings.remove")}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

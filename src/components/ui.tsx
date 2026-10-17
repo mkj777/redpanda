@@ -189,7 +189,7 @@ export function Dialog({
             e.preventDefault();
             // React's autoFocus already focused a field inside: keep it.
             if (root.contains(document.activeElement) && document.activeElement !== root) return;
-            const field = root.querySelector<HTMLElement>("[autofocus], input, textarea, select");
+            const field = root.querySelector<HTMLElement>("[autofocus], input:not([data-inline]), textarea, select");
             (field ?? root).focus();
           }}
           aria-describedby={undefined}
