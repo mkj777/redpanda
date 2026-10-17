@@ -110,6 +110,8 @@ export default function App() {
   }, []);
 
   const railPercent = (RAIL_PX / width) * 100;
+  const sidebarMin = Math.max(12, (190 / width) * 100);
+  const listMin = Math.max(20, (280 / width) * 100);
 
   return (
     <Tooltip.Provider>
@@ -118,8 +120,8 @@ export default function App() {
           <Panel
             id="sidebar"
             order={1}
-            defaultSize={18}
-            minSize={Math.max(12, (190 / width) * 100)}
+            defaultSize={Math.max(18, sidebarMin)}
+            minSize={sidebarMin}
             maxSize={32}
             collapsible
             collapsedSize={railPercent}
@@ -130,7 +132,7 @@ export default function App() {
             <Sidebar collapsed={collapsed} />
           </Panel>
           <ResizeHandle />
-          <Panel id="list" order={2} defaultSize={30} minSize={Math.max(20, (280 / width) * 100)}>
+          <Panel id="list" order={2} defaultSize={Math.max(30, listMin)} minSize={listMin}>
             <MessageList />
           </Panel>
           <ResizeHandle />
