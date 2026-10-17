@@ -131,6 +131,7 @@
       "servers": "Servereinstellungen gefunden",
       "none": "Keine Einstellungen gefunden. Gib die Serverdaten unten ein."
     },
+    "signIn": "Anmelden",
     "signInGoogle": "Mit Google anmelden",
     "signInMicrosoft": "Mit Microsoft anmelden",
     "waitingBrowser": "Schließe die Anmeldung im Browser ab.",

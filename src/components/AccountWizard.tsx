@@ -205,9 +205,9 @@ export function AccountWizard() {
           </div>
         )}
 
-        {found && (
+        {found && !(showOAuth && oauthConfigured) && (
           <div className="flex flex-col gap-3 border-t border-line pt-4">
-            <div className="text-[13px] font-medium">{detected}</div>
+            {!showOAuth && <div className="text-[13px] font-medium">{detected}</div>}
             {found.hint && !showOAuth && (
               <div className="flex gap-2 rounded-md border border-line bg-bg p-2.5 text-[13px] text-muted">
                 <Info size={14} className="mt-0.5 shrink-0" />
@@ -226,37 +226,13 @@ export function AccountWizard() {
             )}
 
             {showOAuth ? (
-              <>
-                {!oauthConfigured && (
-                  <div className="rounded-md border border-line bg-bg p-2.5 text-[13px] text-muted">
-                    {t("wizard.oauthMissing", { provider: providerLabel })}{" "}
-                    <button type="button" className="text-accent hover:underline" onClick={() => openExternal(SETUP_GUIDE_URL)}>
-                      {t("wizard.setupGuide")}
-                    </button>
-                    {oauth?.configPath && <div className="selectable mt-1 break-all font-mono text-xs">{oauth.configPath}</div>}
-                  </div>
-                )}
-                <Button type="submit" variant="primary" disabled={!oauthConfigured || !!busy}>
-                  {busy === "browser" && <Spinner className="size-3.5 border-white/40 border-t-white" />}
-                  {oauthProvider === "google" ? t("wizard.signInGoogle") : t("wizard.signInMicrosoft")}
-                </Button>
-                {busy === "browser" && (
-                  <div className="flex items-center justify-between text-[13px] text-muted">
-                    {t("wizard.waitingBrowser")}
-                    <Button type="button" size="sm" variant="ghost" onClick={() => api.cancelOauth()}>
-                      {t("common.cancel")}
-                    </Button>
-                  </div>
-                )}
-                {oauthProvider === "google" && oauthConfigured && (
-                  <p className="text-[13px] text-muted">{t("wizard.googleUnverified")}</p>
-                )}
-                {found.allowPassword && !busy && (
-                  <button type="button" className="self-start text-[13px] text-muted hover:text-fg" onClick={() => setUsePassword(true)}>
-                    {t("wizard.useAppPassword")}
-                  </button>
-                )}
-              </>
+              <div className="rounded-md border border-line bg-bg p-2.5 text-[13px] text-muted">
+                {t("wizard.oauthMissing", { provider: providerLabel })}{" "}
+                <button type="button" className="text-accent hover:underline" onClick={() => openExternal(SETUP_GUIDE_URL)}>
+                  {t("wizard.setupGuide")}
+                </button>
+                {oauth?.configPath && <div className="selectable mt-1 break-all font-mono text-xs">{oauth.configPath}</div>}
+              </div>
             ) : (
               <>
                 <Field label={appPassword ? t("wizard.appPassword") : t("wizard.password")} htmlFor="wiz-password">
@@ -269,58 +245,57 @@ export function AccountWizard() {
                     disabled={!!busy}
                   />
                 </Field>
-                {oauthProvider && oauthConfigured && (
-                  <button type="button" className="self-start text-[13px] text-muted hover:text-fg" onClick={() => setUsePassword(false)}>
-                    {t("wizard.useOAuth", { provider: providerLabel })}
+                <div>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-[13px] text-muted hover:text-fg"
+                    onClick={() => setAdvanced(!advanced)}
+                    aria-expanded={advanced}
+                  >
+                    {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    {t("wizard.advanced")}
+                    {!advanced && imap.host && <span className="ml-1 text-faint">{imap.host}</span>}
                   </button>
-                )}
+                  {advanced && (
+                    <div className="mt-3 flex flex-col gap-4">
+                      <ServerFields prefix="imap" label={t("wizard.imap")} value={imap} onChange={setImap} />
+                      <ServerFields prefix="smtp" label={t("wizard.smtp")} value={smtp} onChange={setSmtp} />
+                      <Field label={t("wizard.username")} htmlFor="wiz-user">
+                        <Input id="wiz-user" value={username} onChange={(e) => setUsername(e.target.value)} />
+                      </Field>
+                    </div>
+                  )}
+                </div>
               </>
-            )}
-
-            {!showOAuth && (
-              <div>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 text-[13px] text-muted hover:text-fg"
-                  onClick={() => setAdvanced(!advanced)}
-                  aria-expanded={advanced}
-                >
-                  {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  {t("wizard.advanced")}
-                  {!advanced && imap.host && <span className="ml-1 text-faint">{imap.host}</span>}
-                </button>
-                {advanced && (
-                  <div className="mt-3 flex flex-col gap-4">
-                    <ServerFields prefix="imap" label={t("wizard.imap")} value={imap} onChange={setImap} />
-                    <ServerFields prefix="smtp" label={t("wizard.smtp")} value={smtp} onChange={setSmtp} />
-                    <Field label={t("wizard.username")} htmlFor="wiz-user">
-                      <Input id="wiz-user" value={username} onChange={(e) => setUsername(e.target.value)} />
-                    </Field>
-                  </div>
-                )}
-              </div>
             )}
           </div>
         )}
 
         {error && <div className="rounded-md border border-danger/40 p-2.5 text-[13px] text-danger">{error}</div>}
 
-        {!showOAuth && (
-          <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
-            {busy === "checking" && (
-              <span className="mr-auto flex items-center gap-2 text-[13px] text-muted">
-                <Spinner className="size-3.5" />
-                {t("wizard.checking")}
-              </span>
-            )}
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={!!busy}>
-              {t("common.cancel")}
-            </Button>
-            <Button type="submit" variant="primary" disabled={!canSubmitPassword}>
-              {t("wizard.connect")}
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
+          {busy && (
+            <span className="mr-auto flex items-center gap-2 text-[13px] text-muted">
+              <Spinner className="size-3.5" />
+              {busy === "browser" ? t("wizard.waitingBrowser") : t("wizard.checking")}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => (busy === "browser" ? api.cancelOauth() : setOpen(false))}
+            disabled={busy === "checking"}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" variant="primary" disabled={showOAuth ? !oauthConfigured || !!busy : !canSubmitPassword}>
+            {showOAuth
+              ? oauthProvider === "google"
+                ? t("wizard.signInGoogle")
+                : t("wizard.signInMicrosoft")
+              : t("wizard.signIn")}
+          </Button>
+        </div>
       </form>
     </Dialog>
   );
