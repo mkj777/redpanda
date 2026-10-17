@@ -111,7 +111,7 @@ export interface MessagePage {
   hasMore: boolean;
 }
 
-export type UnifiedView = "inbox" | "unread" | "starred";
+export type UnifiedView = "inbox" | "unread" | "starred" | "sent" | "junk" | "trash";
 
 export type View =
   | { kind: "folder"; folderId: number }

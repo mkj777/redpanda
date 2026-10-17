@@ -128,6 +128,10 @@ export const useMail = create<MailState>()((set, get) => ({
       selectedId: null,
     });
     if (view.kind === "folder") void api.openFolder(view.folderId);
+    // Views over one folder role refresh those folders in every account.
+    if (view.kind === "unified" && (view.which === "sent" || view.which === "junk" || view.which === "trash")) {
+      for (const f of get().folders) if (f.role === view.which) void api.openFolder(f.id);
+    }
     void get().refreshList();
   },
 

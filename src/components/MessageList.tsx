@@ -2,7 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Archive, MailOpen, Mail, Paperclip, RefreshCw, Search, Star, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type Draft, type MessageSummary } from "@/lib/ipc";
+import { api, type Draft, type MessageSummary, type UnifiedView } from "@/lib/ipc";
 import { cn, displayName, listDate } from "@/lib/format";
 import { archive, remove, toggleSeen } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
@@ -12,12 +12,21 @@ import { IconButton, Spinner } from "./ui";
 
 const ROW = 76;
 
+const UNIFIED_TITLES: Record<UnifiedView, string> = {
+  inbox: "nav.allInboxes",
+  unread: "nav.unread",
+  starred: "nav.starred",
+  sent: "nav.allSent",
+  junk: "nav.allJunk",
+  trash: "nav.allTrash",
+};
+
 function useViewTitle() {
   const { t } = useTranslation();
   const { view, folders, accounts } = useMail();
   switch (view.kind) {
     case "unified":
-      return { title: t(`nav.${view.which === "inbox" ? "allInboxes" : view.which}`), sub: null };
+      return { title: t(UNIFIED_TITLES[view.which]), sub: null };
     case "drafts":
       return { title: t("nav.drafts"), sub: null };
     case "search":

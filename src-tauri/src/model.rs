@@ -183,6 +183,9 @@ pub enum UnifiedView {
     Inbox,
     Unread,
     Starred,
+    Sent,
+    Junk,
+    Trash,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

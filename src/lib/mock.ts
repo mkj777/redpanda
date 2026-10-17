@@ -294,6 +294,8 @@ function listFor(view: Exclude<View, { kind: "drafts" }>) {
     if (view.which === "inbox") items = items.filter((m) => folders.find((f) => f.id === m.folderId)!.role === "inbox");
     if (view.which === "unread") items = items.filter((m) => !m.seen && visible(m));
     if (view.which === "starred") items = items.filter((m) => m.flagged && visible(m));
+    if (view.which === "sent" || view.which === "junk" || view.which === "trash")
+      items = items.filter((m) => folders.find((f) => f.id === m.folderId)!.role === view.which);
   } else {
     const q = view.query.toLowerCase();
     items = items.filter((m) =>

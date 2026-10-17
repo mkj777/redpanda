@@ -142,7 +142,10 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
     { view: { kind: "unified", which: "inbox" }, icon: Inbox, label: t("nav.allInboxes"), count: unified.inboxUnread },
     { view: { kind: "unified", which: "unread" }, icon: Mail, label: t("nav.unread"), count: unified.unread },
     { view: { kind: "unified", which: "starred" }, icon: Star, label: t("nav.starred"), count: 0 },
-    { view: { kind: "drafts" }, icon: FileText, label: t("nav.drafts"), count: unified.drafts, hide: unified.drafts === 0 },
+    { view: { kind: "drafts" }, icon: FileText, label: t("nav.drafts"), count: unified.drafts },
+    { view: { kind: "unified", which: "sent" }, icon: Send, label: t("nav.allSent"), count: 0 },
+    { view: { kind: "unified", which: "junk" }, icon: OctagonAlert, label: t("nav.allJunk"), count: 0 },
+    { view: { kind: "unified", which: "trash" }, icon: Trash2, label: t("nav.allTrash"), count: 0 },
   ];
 
   return (

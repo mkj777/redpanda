@@ -645,6 +645,9 @@ pub fn list_messages(
                 "m.seen = 0 AND m.folder_id IN ({VISIBLE_FOLDERS} AND role NOT IN ('sent', 'drafts'))"
             ),
             UnifiedView::Starred => format!("m.flagged = 1 AND m.folder_id IN ({VISIBLE_FOLDERS})"),
+            UnifiedView::Sent => "m.folder_id IN (SELECT id FROM folders WHERE role = 'sent')".to_string(),
+            UnifiedView::Junk => "m.folder_id IN (SELECT id FROM folders WHERE role = 'junk')".to_string(),
+            UnifiedView::Trash => "m.folder_id IN (SELECT id FROM folders WHERE role = 'trash')".to_string(),
         },
         View::Search { query } => {
             let Some(q) = fts_query(query) else {
