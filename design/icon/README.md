@@ -15,7 +15,7 @@ Each folder contains:
 - `png/`: 16 to 1024 px (optical artwork at 32 px and below)
 - `tauri/`: same file names as `src-tauri/icons`, including a 14-size `icon.ico` (32-bit DIB below 256, PNG at 256) and `icon.icns`
 
-To switch the app icon, copy one `tauri/` folder over `src-tauri/icons` and its `svg/icon.svg` to `public/icon.svg`.
+The app icon is generated from the 1024 px PNG master, downscaled to every size, so the small optical artwork is not used in the app. To switch it, run `pnpm tauri icon design/icon/<folder>/png/1024.png`, delete the generated `android/` and `ios/` folders in `src-tauri/icons`, and copy `svg/icon.svg` to `public/icon.svg`.
 
 ## Regenerate
 
