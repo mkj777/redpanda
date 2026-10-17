@@ -56,7 +56,9 @@ impl OAuthProvider {
 
     fn scopes(self) -> &'static str {
         match self {
-            OAuthProvider::Google => "https://mail.google.com/ openid email",
+            // No `openid email`: Google treats that as "Sign in with Google" and mails the user a
+            // profile sharing notice. The address comes from the Gmail profile instead.
+            OAuthProvider::Google => "https://mail.google.com/",
             OAuthProvider::Microsoft => {
                 "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email"
             }
@@ -362,13 +364,38 @@ pub async fn authorize(
     if let Some(secret) = &creds.client_secret {
         form.push(("client_secret", secret.as_str()));
     }
-    let tokens = token_request(http, provider, &form).await?;
+    let mut tokens = token_request(http, provider, &form).await?;
+    if provider == OAuthProvider::Google && tokens.email.is_none() {
+        tokens.email = gmail_address(http, &tokens.access_token).await;
+    }
     if tokens.refresh_token.is_none() {
         return Err(AppError::Auth(
             "the provider did not return a refresh token".into(),
         ));
     }
     Ok(tokens)
+}
+
+/// The address of the signed-in Gmail account. Best effort: without it the typed address is used.
+async fn gmail_address(http: &reqwest::Client, access_token: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Profile {
+        email_address: String,
+    }
+    let resp = http
+        .get("https://gmail.googleapis.com/gmail/v1/users/me/profile")
+        .bearer_auth(access_token)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        tracing::warn!(status = %resp.status(), "could not read the Gmail profile");
+        return None;
+    }
+    let profile: Profile = resp.json().await.ok()?;
+    Some(profile.email_address.to_ascii_lowercase())
 }
 
 /// Accepts loopback connections until one carries the authorization response.
@@ -494,7 +521,7 @@ mod tests {
         assert_eq!(q["client_id"], "cid");
         assert_eq!(q["redirect_uri"], "http://127.0.0.1:5555");
         assert_eq!(q["code_challenge_method"], "S256");
-        assert_eq!(q["scope"], "https://mail.google.com/ openid email");
+        assert_eq!(q["scope"], "https://mail.google.com/");
         assert_eq!(q["access_type"], "offline");
         assert_eq!(q["login_hint"], "me@gmail.com");
 

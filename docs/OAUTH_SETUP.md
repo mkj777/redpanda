@@ -54,7 +54,7 @@ The account wizard re-reads the file when it opens.
 3. Go to **APIs & Services > OAuth consent screen** (in newer consoles: **Google Auth Platform > Branding**).
    - User type: **External**.
    - App name `redpanda`, your support email, and the GitHub repository as the home page.
-   - Under **Data access** (or **Scopes**), add `https://mail.google.com/`, `openid` and `email`.
+   - Under **Data access** (or **Scopes**), add `https://mail.google.com/`. redpanda does not ask for `openid` or `email`, because Google then sends users a "Sign in with Google" notice; it reads the address from the Gmail profile, which is why the Gmail API must be enabled.
    - Under **Audience**, set the publishing status to **In production** (**Publish app**). Google points out that the restricted scope needs verification. You do not have to submit it: the client keeps working unverified.
 4. Go to **APIs & Services > Credentials > Create credentials > OAuth client ID**.
    - Application type: **Desktop app**.
