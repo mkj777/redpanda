@@ -198,13 +198,6 @@ export function AccountWizard() {
           <Input id="wiz-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("wizard.namePlaceholder")} disabled={!!busy} />
         </Field>
 
-        {discovering && (
-          <div className="flex items-center gap-2 text-[13px] text-muted">
-            <Spinner className="size-3.5" />
-            {t("wizard.detecting")}
-          </div>
-        )}
-
         {found && !(showOAuth && oauthConfigured) && (
           <div className="flex flex-col gap-3 border-t border-line pt-4">
             {!showOAuth && <div className="text-[13px] font-medium">{detected}</div>}
@@ -274,7 +267,7 @@ export function AccountWizard() {
         {error && <div className="rounded-md border border-danger/40 p-2.5 text-[13px] text-danger">{error}</div>}
 
         <Button type="submit" variant="primary" disabled={showOAuth ? !oauthConfigured || !!busy : !canSubmitPassword}>
-          {busy && <Spinner className="size-3.5 border-white/40 border-t-white" />}
+          {(busy || discovering) && <Spinner className="size-3.5 border-white/40 border-t-white" />}
           {showOAuth
             ? oauthProvider === "google"
               ? t("wizard.signInGoogle")
