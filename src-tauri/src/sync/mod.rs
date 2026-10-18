@@ -11,11 +11,12 @@ pub mod imap_conn;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::accounts;
 use crate::core::Core;
 use crate::error::{AppError, Result};
 use crate::model::{SyncState, SyncStatus};
@@ -26,6 +27,8 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
 const NO_IDLE_POLL: Duration = Duration::from_secs(2 * 60);
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
+/// How often a Gmail account re-reads its send-as addresses, after a full sync.
+const ALIAS_REFRESH: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Debug)]
 pub enum Job {
@@ -320,6 +323,7 @@ async fn background_worker(
     let mut conn = Conn::new(core.clone(), &account_id);
     let mut backoff = Duration::from_secs(5);
     let mut next = Some(BgCmd::SyncAll);
+    let mut aliases_read: Option<Instant> = None;
     loop {
         let cmd = match next.take() {
             Some(c) => c,
@@ -353,6 +357,10 @@ async fn background_worker(
             Ok(()) => {
                 status.set(SyncState::Idle, None);
                 backoff = Duration::from_secs(5);
+                if full && aliases_read.is_none_or(|t| t.elapsed() >= ALIAS_REFRESH) {
+                    aliases_read = Some(Instant::now());
+                    refresh_aliases(&core, &account_id).await;
+                }
             }
             Err(e) => {
                 tracing::warn!(account = %account_id, "sync failed: {e}");
@@ -378,6 +386,16 @@ async fn background_worker(
         }
     }
     conn.logout().await;
+}
+
+async fn refresh_aliases(core: &Core, account_id: &str) {
+    let res = match core.db.with(|c| queries::get_account(c, account_id)) {
+        Ok(account) => accounts::aliases::refresh(core, &account).await,
+        Err(e) => Err(e),
+    };
+    if let Err(e) = res {
+        tracing::warn!(account = %account_id, "could not read the send-as addresses: {e}");
+    }
 }
 
 async fn run_bg(conn: &mut Conn, full: bool, folders: &[i64]) -> Result<()> {

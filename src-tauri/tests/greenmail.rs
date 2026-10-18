@@ -472,3 +472,129 @@ async fn newsletters() {
 
     app.remove_account(&account.id).unwrap();
 }
+
+/// The From header of the only message in `user`'s inbox.
+async fn received_from(user: &str) -> String {
+    eventually_async("the mail", || {
+        let user = user.to_string();
+        async move { (server_state(&user, "INBOX").await.len() == 1).then_some(()) }
+    })
+    .await;
+    let mut s = raw_session(user).await;
+    s.select("INBOX").await.unwrap();
+    let fetched = imap_conn::collect(s.fetch("1", "BODY.PEEK[HEADER]").await.unwrap())
+        .await
+        .unwrap();
+    let header = String::from_utf8_lossy(fetched[0].header().unwrap()).into_owned();
+    let _ = s.logout().await;
+    header
+        .lines()
+        .find(|l| l.starts_with("From:"))
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a GreenMail container"]
+async fn send_as_alias() {
+    let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let user = format!("u{id}@example.com");
+    let alias = format!("old{id}@example.net");
+    let (friend, list) = (format!("f{id}@example.com"), format!("leave{id}@example.com"));
+    for u in [&friend, &list] {
+        let _ = raw_session(u).await.logout().await;
+    }
+    {
+        let mut s = raw_session(&user).await;
+        let raw = [
+            "From: Shop News <news@shop.example>".to_string(),
+            format!("To: {alias}"),
+            "Subject: Autumn sale".into(),
+            "Date: Sat, 17 Oct 2026 09:00:00 +0000".into(),
+            format!("List-Unsubscribe: <mailto:{list}>"),
+            String::new(),
+            "Twenty percent off.".into(),
+        ]
+        .join("\r\n");
+        s.append("INBOX", None, None, raw.as_bytes()).await.unwrap();
+        let _ = s.logout().await;
+    }
+
+    let core = Arc::new(Core::new(
+        Db::open_in_memory().unwrap(),
+        Secrets::from_key(&[9u8; 32]).unwrap(),
+        OAuthConfig::default(),
+        Arc::new(NoEvents),
+    ));
+    let app = App::new(core.clone());
+    let account = app
+        .add_account(
+            NewAccountInput {
+                email: user.clone(),
+                display_name: "Test User".into(),
+                provider_id: None,
+                username: user.clone(),
+                imap: imap_cfg(),
+                smtp: smtp_cfg(),
+                auth: NewAuth::Password {
+                    password: "secret".into(),
+                },
+            },
+            |_| Ok(()),
+        )
+        .await
+        .unwrap()
+        .account;
+    // What a Gmail account reads from its send-as settings.
+    core.db
+        .with(|c| {
+            queries::replace_aliases(
+                c,
+                &account.id,
+                &[Address {
+                    name: Some("Old Me".into()),
+                    email: alias.clone(),
+                }],
+            )
+        })
+        .unwrap();
+    let view = app.list_accounts().unwrap();
+    assert_eq!(view[0].aliases[0].email, alias);
+
+    let draft = |from: &str| Draft {
+        account_id: account.id.clone(),
+        from_email: Some(from.to_string()),
+        to: vec![Address {
+            name: None,
+            email: friend.clone(),
+        }],
+        subject: "Hello".into(),
+        body: "Hi".into(),
+        ..Default::default()
+    };
+    let refused = app.send(draft("someone@else.example")).await;
+    assert!(
+        matches!(&refused, Err(AppError::Invalid(m)) if m == "unknown_sender"),
+        "{refused:?}"
+    );
+    app.send(draft(&alias.to_uppercase())).await.unwrap();
+    let from = received_from(&friend).await;
+    assert!(
+        from.contains(&format!("\"Old Me\" <{alias}>")) || from.contains(&format!("Old Me <{alias}>")),
+        "{from}"
+    );
+
+    // The unsubscribe mail leaves from the address the newsletter went to.
+    let subs = eventually("the newsletter", || {
+        let s = app.list_subscriptions().unwrap();
+        (!s.is_empty()).then_some(s)
+    })
+    .await;
+    app.unsubscribe(subs[0].latest_id, false, |_| panic!("no page"))
+        .await
+        .unwrap();
+    let from = received_from(&list).await;
+    assert!(from.contains(&alias), "{from}");
+
+    app.remove_account(&account.id).unwrap();
+}

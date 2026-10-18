@@ -154,7 +154,8 @@
     "saved": "Draft saved",
     "sent": "Message sent",
     "noRecipients": "Add at least one recipient.",
-    "invalidRecipient": "{{email}} is not a valid address."
+    "invalidRecipient": "{{email}} is not a valid address.",
+    "fromUnavailable": "This account may no longer send from that address. Pick another one under From."
   },
   "quote": {
     "wrote": "On {{date}}, {{sender}} wrote:",
@@ -224,6 +225,7 @@
     "displayName": "Display name",
     "color": "Color",
     "relogin": "Sign in again",
+    "aliases": "Also sends as {{list}}",
     "accountMenu": "Account options",
     "signedIn": "Signed in",
     "remove": "Remove",

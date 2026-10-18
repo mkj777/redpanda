@@ -1,3 +1,4 @@
+pub mod aliases;
 pub mod discovery;
 pub mod oauth;
 pub mod providers;

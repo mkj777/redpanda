@@ -7,7 +7,7 @@ use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart};
 use lettre::Message;
 
 use crate::error::{AppError, Result};
-use crate::model::{Account, Address, Draft};
+use crate::model::{Address, Draft};
 
 pub struct AttachmentData {
     pub filename: String,
@@ -50,7 +50,8 @@ pub fn read_attachment_file(path: &str) -> Result<AttachmentData> {
     })
 }
 
-pub fn build_message(account: &Account, draft: &Draft, attachments: Vec<AttachmentData>) -> Result<Message> {
+/// `from` is the account's own address or one of its aliases (see `App::sender`).
+pub fn build_message(from: &Address, draft: &Draft, attachments: Vec<AttachmentData>) -> Result<Message> {
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         return Err(AppError::Invalid("no recipients".into()));
     }
@@ -59,13 +60,9 @@ pub fn build_message(account: &Account, draft: &Draft, attachments: Vec<Attachme
         return Err(AppError::Invalid("attachments are larger than 25 MB".into()));
     }
 
-    let from = mailbox(&Address {
-        name: Some(account.display_name.clone()),
-        email: account.email.clone(),
-    })?;
-    let domain = account.email.rsplit('@').next().unwrap_or("localhost");
+    let domain = from.email.rsplit('@').next().unwrap_or("localhost");
     let mut builder = Message::builder()
-        .from(from)
+        .from(mailbox(from)?)
         .subject(draft.subject.trim())
         .date_now()
         .message_id(Some(format!("<{}@{}>", uuid::Uuid::new_v4(), domain)))
@@ -112,30 +109,12 @@ pub fn build_message(account: &Account, draft: &Draft, attachments: Vec<Attachme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AuthType, Security, ServerConfig};
     use mail_parser::MessageParser;
 
-    fn account() -> Account {
-        Account {
-            id: "a".into(),
+    fn me() -> Address {
+        Address {
+            name: Some("Max Kielholz".into()),
             email: "max@example.com".into(),
-            display_name: "Max Kielholz".into(),
-            provider: "custom".into(),
-            auth_type: AuthType::Password,
-            username: "max@example.com".into(),
-            imap: ServerConfig {
-                host: "i".into(),
-                port: 993,
-                security: Security::Tls,
-            },
-            smtp: ServerConfig {
-                host: "s".into(),
-                port: 465,
-                security: Security::Tls,
-            },
-            color: "#000".into(),
-            sent_saved_by_server: false,
-            is_gmail: false,
         }
     }
 
@@ -157,7 +136,7 @@ mod tests {
             references: vec!["m1@example.org".into(), "<m2@example.org>".into()],
             ..Default::default()
         };
-        let msg = build_message(&account(), &draft, vec![]).unwrap();
+        let msg = build_message(&me(), &draft, vec![]).unwrap();
         let raw = msg.formatted();
         let parsed = MessageParser::default().parse(&raw).unwrap();
         assert_eq!(parsed.subject(), Some("Re: Bericht \u{dc}bersicht"));
@@ -180,18 +159,15 @@ mod tests {
             body: "see attached".into(),
             ..Default::default()
         };
-        assert!(
-            build_message(&account(), &draft, vec![]).is_err(),
-            "no recipients"
-        );
+        assert!(build_message(&me(), &draft, vec![]).is_err(), "no recipients");
         draft.to.push(Address {
             name: None,
             email: "not an address".into(),
         });
-        assert!(build_message(&account(), &draft, vec![]).is_err());
+        assert!(build_message(&me(), &draft, vec![]).is_err());
         draft.to[0].email = "b@example.org".into();
         let msg = build_message(
-            &account(),
+            &me(),
             &draft,
             vec![AttachmentData {
                 filename: "notes.txt".into(),

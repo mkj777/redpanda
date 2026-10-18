@@ -44,6 +44,7 @@ const accounts: Account[] = [
     color: "#c2410c",
     sentSavedByServer: true,
     isGmail: true,
+    aliases: [{ name: "Lena Berger Fotografie", email: "hallo@berger-fotografie.de" }],
     status: "idle",
     statusError: null,
   },
@@ -59,6 +60,7 @@ const accounts: Account[] = [
     color: "#2563eb",
     sentSavedByServer: true,
     isGmail: false,
+    aliases: [],
     status: "idle",
     statusError: null,
   },
@@ -74,6 +76,7 @@ const accounts: Account[] = [
     color: "#059669",
     sentSavedByServer: false,
     isGmail: false,
+    aliases: [],
     status: "auth_required",
     statusError: "authentication failed: invalid credentials",
   },
@@ -243,6 +246,17 @@ add(
     text: "Klingt super! Ich hab mal nach Unterkünften in Vesterbro geschaut, die Wohnung mit dem Balkon wäre noch frei. Soll ich direkt buchen?\n\nMara\n\n> Am 14.10. schrieb Lena:\n> Wie wäre es mit dem ersten Novemberwochenende?",
   },
   { threadKey: "cph", threadCount: 3, flagged: true },
+);
+add(
+  "acc-gmail",
+  "inbox",
+  addr("Jana Peters", "jana@elbwerk.example"),
+  "Anfrage: Fotos für unseren Messestand",
+  6 * hour,
+  {
+    text: "Hallo Frau Berger,\n\nwir suchen jemanden für Produktfotos zu unserem Messestand im November. Hätten Sie Ende Oktober Zeit für ein Vorgespräch?\n\nViele Grüße\nJana Peters",
+  },
+  { to: [addr("Lena Berger Fotografie", "hallo@berger-fotografie.de")] },
 );
 add(
   "acc-work",
@@ -518,6 +532,7 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
         id: `acc-${Date.now()}`,
         email: input.email,
         displayName: input.displayName || input.email.split("@")[0],
+        aliases: [],
         status: "syncing",
         statusError: null,
         color: "#7c3aed",
@@ -652,6 +667,9 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
     case "send_message": {
       await delay(900);
       const d = args.draft as Draft;
+      const sender = accounts.find((a) => a.id === d.accountId);
+      if (d.fromEmail && !sender?.aliases.some((x) => x.email === d.fromEmail))
+        throw { code: "invalid", message: "unknown_sender" };
       if (d.id) drafts = drafts.filter((x) => x.id !== d.id);
       changed(d.accountId);
       return null;

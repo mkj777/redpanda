@@ -61,6 +61,11 @@ function AccountRow({ account }: { account: Account }) {
             className="-ml-1 h-6 w-full rounded border border-transparent bg-transparent px-1 text-sm font-medium text-fg outline-none hover:border-line focus:border-accent"
           />
           <div className="truncate text-xs text-muted">{account.email}</div>
+          {account.aliases.length > 0 && (
+            <div className="truncate text-xs text-faint" title={account.aliases.map((a) => a.email).join("\n")}>
+              {t("settings.aliases", { list: account.aliases.map((a) => a.email).join(", ") })}
+            </div>
+          )}
         </div>
         {showStatus && (
           <span className={cn("shrink-0 text-xs", account.status === "offline" ? "text-muted" : "text-danger")}>

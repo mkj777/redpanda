@@ -154,7 +154,8 @@
     "saved": "Entwurf gespeichert",
     "sent": "Nachricht gesendet",
     "noRecipients": "Füge mindestens einen Empfänger hinzu.",
-    "invalidRecipient": "{{email}} ist keine gültige Adresse."
+    "invalidRecipient": "{{email}} ist keine gültige Adresse.",
+    "fromUnavailable": "Das Konto darf von dieser Adresse nicht mehr senden. Wähle unter „Von“ eine andere."
   },
   "quote": {
     "wrote": "Am {{date}} schrieb {{sender}}:",
@@ -224,6 +225,7 @@
     "displayName": "Anzeigename",
     "color": "Farbe",
     "relogin": "Erneut anmelden",
+    "aliases": "Sendet auch als {{list}}",
     "accountMenu": "Kontooptionen",
     "signedIn": "Angemeldet",
     "remove": "Entfernen",

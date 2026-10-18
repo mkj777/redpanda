@@ -57,6 +57,11 @@ impl Core {
         );
     }
 
+    /// Account data besides the sync status changed, for now the aliases.
+    pub fn accounts_changed(&self) {
+        self.events.emit("accounts:changed", json!({}));
+    }
+
     pub fn sync_status(&self, status: &SyncStatus) {
         self.events
             .emit("sync:status", serde_json::to_value(status).unwrap_or_default());

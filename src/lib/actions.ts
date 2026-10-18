@@ -2,7 +2,7 @@
 
 import i18n from "@/i18n";
 import { api, toAppError, type AppError, type MessageDetail, type MessageSummary } from "./ipc";
-import { buildReply, type ReplyMode } from "./reply";
+import { buildReply, ownAddresses, type ReplyMode } from "./reply";
 import { displayName, fullDate } from "./format";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
@@ -13,6 +13,7 @@ export function errorText(e: unknown): string {
   const key = `errors.${err.code}`;
   if (err.code === "invalid" || !i18n.exists(key)) {
     if (err.message === "blocked_file_type") return i18n.t("reader.blockedType");
+    if (err.message === "unknown_sender") return i18n.t("compose.fromUnavailable");
     return err.message;
   }
   return i18n.t(key);
@@ -182,7 +183,7 @@ export async function reply(mode: ReplyMode, msg: MessageSummary | MessageDetail
       mode,
       detail,
       account,
-      accounts.map((a) => a.email),
+      ownAddresses(accounts),
       quoteLabels(),
       (d) => fullDate(d, i18n.language),
     );

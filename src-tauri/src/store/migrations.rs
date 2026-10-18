@@ -6,6 +6,7 @@ use crate::error::Result;
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_unsubscribe.sql"),
+    include_str!("migrations/0003_aliases.sql"),
 ];
 
 pub fn apply(conn: &mut Connection) -> Result<()> {

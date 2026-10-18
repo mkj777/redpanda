@@ -1,7 +1,7 @@
 import { FileText, Paperclip, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, isTauri, pickFiles, type Draft } from "@/lib/ipc";
+import { api, isTauri, pickFiles, type Account, type Draft } from "@/lib/ipc";
 import { errorText } from "@/lib/actions";
 import { isEmail } from "@/lib/format";
 import { useMail } from "@/stores/mail";
@@ -17,6 +17,23 @@ function isBlank(d: Draft) {
 
 function fileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+const senderKey = (accountId: string, fromEmail?: string | null) => `${accountId} ${fromEmail ?? ""}`;
+
+/** Every address the user can send from: each account's own, then its aliases. */
+function senders(accounts: Account[], draft: Draft) {
+  const list = accounts.flatMap((a) => [
+    { accountId: a.id, fromEmail: null as string | null, label: `${a.displayName} <${a.email}>` },
+    ...a.aliases.map((x) => ({ accountId: a.id, fromEmail: x.email, label: `${x.name || a.displayName} <${x.email}>` })),
+  ]);
+  // An alias the account lost since the draft was saved stays visible, sending then says why it fails.
+  const account = accounts.find((a) => a.id === draft.accountId);
+  const current = senderKey(draft.accountId, draft.fromEmail);
+  if (account && draft.fromEmail && !list.some((s) => senderKey(s.accountId, s.fromEmail) === current)) {
+    list.push({ accountId: account.id, fromEmail: draft.fromEmail, label: `${account.displayName} <${draft.fromEmail}>` });
+  }
+  return list.map((s) => ({ ...s, value: senderKey(s.accountId, s.fromEmail) }));
 }
 
 export function Composer() {
@@ -133,6 +150,7 @@ export function Composer() {
     }
   };
 
+  const from = senders(accounts, draft);
   const title =
     composer.kind === "reply" || composer.kind === "replyAll"
       ? t("compose.titleReply")
@@ -163,9 +181,12 @@ export function Composer() {
           </label>
           <Select
             id="compose-from"
-            value={draft.accountId}
-            onChange={(accountId) => update({ accountId })}
-            options={accounts.map((a) => ({ value: a.id, label: `${a.displayName} <${a.email}>` }))}
+            value={senderKey(draft.accountId, draft.fromEmail)}
+            onChange={(key) => {
+              const s = from.find((o) => o.value === key);
+              if (s) update({ accountId: s.accountId, fromEmail: s.fromEmail });
+            }}
+            options={from}
             className="h-7 flex-1 border-transparent px-0 focus:border-transparent"
           />
           {!showCc && (

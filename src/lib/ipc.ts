@@ -37,6 +37,8 @@ export interface Account {
   color: string;
   sentSavedByServer: boolean;
   isGmail: boolean;
+  /** Further addresses the account can send from, for Gmail its "Send mail as" list. */
+  aliases: Address[];
   status: SyncState;
   statusError: string | null;
 }
@@ -154,6 +156,8 @@ export type ListView =
 export interface Draft {
   id?: number | null;
   accountId: string;
+  /** One of the account's aliases. Empty sends from the account's own address. */
+  fromEmail?: string | null;
   to: Address[];
   cc: Address[];
   bcc: Address[];
@@ -292,6 +296,7 @@ export interface ActionFailed {
 
 type Events = {
   "mail:changed": MailChanged;
+  "accounts:changed": Record<string, never>;
   "sync:status": SyncStatusEvent;
   "action:failed": ActionFailed;
   "titlebar:maximize": CaptionState;

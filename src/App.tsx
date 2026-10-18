@@ -61,6 +61,7 @@ function useBackendEvents() {
     };
     const subs = [
       listen("mail:changed", scheduleRefresh),
+      listen("accounts:changed", () => void useMail.getState().refreshAccounts()),
       listen("sync:status", (s) => {
         useMail.getState().setAccountStatus(s.accountId, s.state, s.error);
         if (s.state === "idle") scheduleRefresh();

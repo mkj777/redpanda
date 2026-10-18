@@ -23,6 +23,7 @@ The frontend never talks to a mail server. It reads data through Tauri commands 
 - `providers.rs`: built-in table of well-known providers (hosts, ports, auth type, hints, whether the server stores sent mail itself).
 - `discovery.rs`: resolves server settings from an email address. The chain stops at the first hit: provider table, MX classification (Google Workspace, Microsoft 365), Mozilla ISPDB / autoconfig XML, RFC 6186 SRV records, `imap.`/`smtp.` guessing with a TLS probe. The manual form is the last fallback.
 - `oauth.rs`: authorization code flow with PKCE in the system browser. A loopback listener on `127.0.0.1:<random port>` receives the redirect. Tokens are refreshed before every IMAP/SMTP login. Client IDs come from environment variables, `%APPDATA%\redpanda\oauth.json` or, in release builds, from CI secrets compiled in with `option_env!` (see ADR 0004). They are never in the repository.
+- `aliases.rs`: reads the "Send mail as" addresses of Gmail accounts from the Gmail API after a full sync, at most once an hour (see ADR 0007).
 - `secrets.rs`: a random 256-bit key lives in the Windows Credential Manager. Passwords and tokens are encrypted with ChaCha20-Poly1305 and stored in SQLite (see ADR 0002).
 
 ### `store/`
@@ -37,7 +38,8 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 | `bodies` | plain text, sanitized HTML, attachment metadata |
 | `messages_fts` | FTS5 index over subject, from, to, preview, body text |
 | `secrets` | encrypted credentials per account |
-| `drafts` | locally autosaved drafts |
+| `aliases` | further addresses an account may send from |
+| `drafts` | locally autosaved drafts, with the address they go out from |
 | `unsubscribed` | newsletter senders the user left, per account |
 
 ### `sync/`
@@ -56,7 +58,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 
 ### `send/`
 
-- `compose.rs`: builds the outgoing message (reply headers, quoting, attachments).
+- `compose.rs`: builds the outgoing message (reply headers, quoting, attachments). The sender is the account's own address or one of its aliases, checked against the `aliases` table before sending.
 - `smtp.rs`: delivery through lettre with password or XOAUTH2, then IMAP APPEND to Sent unless the provider stores sent mail itself.
 
 ### `unsubscribe.rs`

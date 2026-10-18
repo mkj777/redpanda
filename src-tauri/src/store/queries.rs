@@ -130,6 +130,35 @@ pub fn delete_account(c: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn aliases(c: &Connection, account_id: &str) -> Result<Vec<Address>> {
+    let mut stmt =
+        c.prepare("SELECT name, email FROM aliases WHERE account_id = ?1 ORDER BY sort_order, email")?;
+    let rows = stmt.query_map([account_id], |r| {
+        Ok(Address {
+            name: r.get(0)?,
+            email: r.get(1)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Replaces the account's aliases. Returns whether anything changed.
+pub fn replace_aliases(c: &mut Connection, account_id: &str, list: &[Address]) -> Result<bool> {
+    if aliases(c, account_id)? == list {
+        return Ok(false);
+    }
+    let tx = c.transaction()?;
+    tx.execute("DELETE FROM aliases WHERE account_id = ?1", [account_id])?;
+    for (i, a) in list.iter().enumerate() {
+        tx.execute(
+            "INSERT OR IGNORE INTO aliases (account_id, email, name, sort_order) VALUES (?1, ?2, ?3, ?4)",
+            params![account_id, a.email, a.name, i as i64],
+        )?;
+    }
+    tx.commit()?;
+    Ok(true)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Secrets
 
@@ -983,7 +1012,7 @@ pub fn save_draft(c: &Connection, d: &Draft) -> Result<i64> {
         let n = c.execute(
             "UPDATE drafts SET account_id = ?1, to_json = ?2, cc_json = ?3, bcc_json = ?4, subject = ?5, \
              body = ?6, in_reply_to = ?7, refs = ?8, attachments_json = ?9, reply_to_message_id = ?10, \
-             forward_from_message_id = ?11, updated_at = ?12 WHERE id = ?13",
+             forward_from_message_id = ?11, updated_at = ?12, from_email = ?14 WHERE id = ?13",
             params![
                 d.account_id,
                 to,
@@ -997,7 +1026,8 @@ pub fn save_draft(c: &Connection, d: &Draft) -> Result<i64> {
                 d.reply_to_message_id,
                 d.forward_from_message_id,
                 ts,
-                id
+                id,
+                d.from_email
             ],
         )?;
         if n > 0 {
@@ -1017,11 +1047,12 @@ pub fn save_draft(c: &Connection, d: &Draft) -> Result<i64> {
         d.reply_to_message_id,
         d.forward_from_message_id,
         ts,
+        d.from_email,
     ];
     c.execute(
         "INSERT INTO drafts (account_id, to_json, cc_json, bcc_json, subject, body, in_reply_to, refs, \
-         attachments_json, reply_to_message_id, forward_from_message_id, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         attachments_json, reply_to_message_id, forward_from_message_id, updated_at, from_email) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         values,
     )?;
     Ok(c.last_insert_rowid())
@@ -1043,11 +1074,12 @@ fn draft_from_row(r: &Row) -> rusqlite::Result<Draft> {
         reply_to_message_id: r.get(10)?,
         forward_from_message_id: r.get(11)?,
         updated_at: r.get(12)?,
+        from_email: r.get(13)?,
     })
 }
 
 const DRAFT_COLS: &str = "id, account_id, to_json, cc_json, bcc_json, subject, body, in_reply_to, refs, \
-     attachments_json, reply_to_message_id, forward_from_message_id, updated_at";
+     attachments_json, reply_to_message_id, forward_from_message_id, updated_at, from_email";
 
 pub fn list_drafts(c: &Connection) -> Result<Vec<Draft>> {
     let mut stmt = c.prepare(&format!(
@@ -1433,9 +1465,11 @@ mod tests {
             let id = save_draft(c, &d)?;
             d.id = Some(id);
             d.subject = "Hi again".into();
+            d.from_email = Some("alias@y.z".into());
             assert_eq!(save_draft(c, &d)?, id);
             let back = get_draft(c, id)?;
             assert_eq!(back.subject, "Hi again");
+            assert_eq!(back.from_email.as_deref(), Some("alias@y.z"));
             assert_eq!(back.to.len(), 1);
             assert_eq!(list_drafts(c)?.len(), 1);
             delete_draft(c, id)?;
@@ -1446,11 +1480,44 @@ mod tests {
     }
 
     #[test]
+    fn aliases_are_replaced_and_report_changes() {
+        let (db, _, _) = setup();
+        db.with(|c| {
+            let list = vec![
+                Address {
+                    name: Some("Max".into()),
+                    email: "z@gmail.com".into(),
+                },
+                Address {
+                    name: None,
+                    email: "a@own.example".into(),
+                },
+            ];
+            assert!(replace_aliases(c, "a1", &list)?);
+            assert_eq!(aliases(c, "a1")?, list, "keeps the order it was given");
+            assert!(!replace_aliases(c, "a1", &list)?);
+            assert!(replace_aliases(c, "a1", &list[1..])?);
+            assert_eq!(aliases(c, "a1")?.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn account_delete_cascades() {
         let (db, inbox, _) = setup();
         db.with(|c| {
             upsert_message(c, &msg("a1", inbox, 1, "m1", "t1", 100), false)?;
+            replace_aliases(
+                c,
+                "a1",
+                &[Address {
+                    name: None,
+                    email: "x@y.z".into(),
+                }],
+            )?;
             delete_account(c, "a1")?;
+            assert!(aliases(c, "a1")?.is_empty());
             let n: i64 = c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
             assert_eq!(n, 0);
             let n: i64 = c.query_row("SELECT COUNT(*) FROM messages_fts", [], |r| r.get(0))?;

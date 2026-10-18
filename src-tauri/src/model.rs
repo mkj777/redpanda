@@ -243,6 +243,9 @@ pub struct Draft {
     #[serde(default)]
     pub id: Option<i64>,
     pub account_id: String,
+    /// One of the account's aliases to send from. `None` is the account's own address.
+    #[serde(default)]
+    pub from_email: Option<String>,
     #[serde(default)]
     pub to: Vec<Address>,
     #[serde(default)]

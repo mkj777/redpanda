@@ -14,6 +14,7 @@ const account: Account = {
   color: "#000",
   sentSavedByServer: false,
   isGmail: false,
+  aliases: [],
   status: "idle",
   statusError: null,
 };
@@ -101,6 +102,26 @@ describe("buildReply", () => {
     const d = buildReply("replyAll", sent, account, ["me@example.com"], labels, date);
     expect(d.to.map((a) => a.email)).toEqual(["anna@example.org"]);
     expect(d.cc.map((a) => a.email)).toEqual(["carol@example.org"]);
+  });
+
+  it("answers from the alias the message went to", () => {
+    const aliased = { ...account, aliases: [{ name: "Old Me", email: "old@gmail.example" }] };
+    const toAlias = message({
+      to: [{ name: null, email: "OLD@gmail.example" }],
+      cc: [{ name: null, email: "carol@example.org" }],
+    });
+    const d = buildReply("replyAll", toAlias, aliased, ["me@example.com"], labels, date);
+    expect(d.fromEmail).toBe("old@gmail.example");
+    expect(d.to.map((a) => a.email)).toEqual(["anna@example.org"]);
+    expect(d.cc.map((a) => a.email)).toEqual(["carol@example.org"]);
+    expect(buildReply("forward", toAlias, aliased, [], labels, date).fromEmail).toBe("old@gmail.example");
+
+    // Mail to the own address, or sent from it, stays with the account's address.
+    expect(buildReply("reply", message(), aliased, [], labels, date).fromEmail).toBeUndefined();
+    const sentFromAlias = message({ from: { name: null, email: "old@gmail.example" }, to: [{ name: null, email: "anna@example.org" }] });
+    const d2 = buildReply("reply", sentFromAlias, aliased, [], labels, date);
+    expect(d2.fromEmail).toBe("old@gmail.example");
+    expect(d2.to.map((a) => a.email)).toEqual(["anna@example.org"]);
   });
 
   it("forward has no recipients and keeps attachments", () => {

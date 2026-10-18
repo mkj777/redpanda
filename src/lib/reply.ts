@@ -52,6 +52,25 @@ function fill(template: string, values: Record<string, string>) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => values[k] ?? "");
 }
 
+/** All addresses the user has: every account's own and its aliases. */
+export function ownAddresses(accounts: Account[]) {
+  return accounts.flatMap((a) => [a.email, ...a.aliases.map((x) => x.email)]);
+}
+
+/**
+ * The alias to answer from, like Gmail: the one the message went to, or the one it was sent
+ * from. Undefined for the account's own address.
+ */
+export function replyFrom(msg: MessageDetail, account: Account) {
+  const candidates = [...(msg.from ? [msg.from] : []), ...msg.to, ...msg.cc];
+  for (const c of candidates) {
+    if (sameEmail(c.email, account.email)) return undefined;
+    const alias = account.aliases.find((a) => sameEmail(a.email, c.email));
+    if (alias) return alias.email;
+  }
+  return undefined;
+}
+
 /**
  * Builds the draft for reply, reply all or forward. `ownEmails` are the user's addresses,
  * which never end up as recipients of a reply.
@@ -64,11 +83,12 @@ export function buildReply(
   labels: QuoteLabels,
   formatDate: (unix: number) => string,
 ): Draft {
-  const own = [...ownEmails, account.email];
+  const own = [...ownEmails, ...ownAddresses([account])];
   const fromMe = msg.from ? own.some((e) => sameEmail(e, msg.from!.email)) : false;
   const text = msg.text ?? "";
   const base: Draft = {
     accountId: account.id,
+    fromEmail: replyFrom(msg, account),
     to: [],
     cc: [],
     bcc: [],

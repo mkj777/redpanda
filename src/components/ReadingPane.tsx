@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { api, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
 import { cn, displayName, fileSize, fullDate } from "@/lib/format";
 import { archive, markSeen, moveTo, remove, reply, reportError, toggleFlagged, toggleSeen } from "@/lib/actions";
+import { ownAddresses } from "@/lib/reply";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { HtmlBody, TextBody } from "./MessageBody";
@@ -108,7 +109,7 @@ export function MessageView({
 }) {
   const { t, i18n } = useTranslation();
   const revision = useMail((s) => s.revision);
-  const ownEmails = useMail(useShallow((s) => s.accounts.map((a) => a.email.toLowerCase())));
+  const ownEmails = useMail(useShallow((s) => ownAddresses(s.accounts).map((e) => e.toLowerCase())));
   const [msg, setMsg] = useState<MessageDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allowed, setAllowed] = useState(false);

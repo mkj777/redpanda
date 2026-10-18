@@ -27,6 +27,8 @@ use crate::unsubscribe::{self, Method as UnsubscribeMethod};
 pub struct AccountView {
     #[serde(flatten)]
     pub account: Account,
+    /// Further addresses the account can send from.
+    pub aliases: Vec<Address>,
     pub status: SyncState,
     pub status_error: Option<String>,
 }
@@ -122,18 +124,19 @@ impl App {
     // Accounts
 
     pub fn list_accounts(&self) -> Result<Vec<AccountView>> {
-        let accounts = self.core.db.with(|c| queries::list_accounts(c))?;
-        Ok(accounts
-            .into_iter()
-            .map(|account| {
+        self.core.db.with(|c| {
+            let mut out = Vec::new();
+            for account in queries::list_accounts(c)? {
                 let status = self.sync.status(&account.id);
-                AccountView {
+                out.push(AccountView {
+                    aliases: queries::aliases(c, &account.id)?,
                     status: status.as_ref().map_or(SyncState::Syncing, |s| s.state),
                     status_error: status.and_then(|s| s.error),
                     account,
-                }
-            })
-            .collect())
+                });
+            }
+            Ok(out)
+        })
     }
 
     pub async fn discover(&self, email: &str) -> DiscoveryResult {
@@ -273,6 +276,7 @@ impl App {
         self.sync.start(&account.id);
         Ok(AccountView {
             account,
+            aliases: vec![],
             status: SyncState::Syncing,
             status_error: None,
         })
@@ -731,8 +735,14 @@ impl App {
                     .and_then(unsubscribe::parse_mailto)
                     .ok_or_else(|| AppError::NotFound("unsubscribe".into()))?;
                 let account = self.core.db.with(|c| queries::get_account(c, &row.account_id))?;
+                // From the address the newsletter went to, lists may go by the sender.
+                let from = match self.core.db.with(|c| queries::get_summary(c, message_id)) {
+                    Ok(m) => self.own_recipient(&account, &m.to)?,
+                    Err(_) => None,
+                };
                 let draft = Draft {
                     account_id: account.id.clone(),
+                    from_email: from,
                     to: vec![Address {
                         name: None,
                         email: mailto.to,
@@ -745,7 +755,8 @@ impl App {
                     ..Default::default()
                 };
                 // Sent directly: the list address belongs neither in the contacts nor in Sent.
-                let message = compose::build_message(&account, &draft, vec![])?;
+                let sender = self.sender(&account, draft.from_email.as_deref())?;
+                let message = compose::build_message(&sender, &draft, vec![])?;
                 smtp::send(&self.core, &account, &message).await?;
             }
             UnsubscribeMethod::Web => {
@@ -765,6 +776,48 @@ impl App {
 
     // -----------------------------------------------------------------------------------------
     // Compose
+
+    /// The address to send from: the account's own or one of its aliases, nothing else.
+    fn sender(&self, account: &Account, from_email: Option<&str>) -> Result<Address> {
+        let own = Address {
+            name: Some(account.display_name.clone()),
+            email: account.email.clone(),
+        };
+        let Some(email) = from_email
+            .map(str::trim)
+            .filter(|e| !e.is_empty() && !e.eq_ignore_ascii_case(&account.email))
+        else {
+            return Ok(own);
+        };
+        let alias = self
+            .core
+            .db
+            .with(|c| queries::aliases(c, &account.id))?
+            .into_iter()
+            .find(|a| a.email.eq_ignore_ascii_case(email))
+            .ok_or_else(|| AppError::Invalid("unknown_sender".into()))?;
+        Ok(Address {
+            name: alias.name.or(own.name),
+            email: alias.email,
+        })
+    }
+
+    /// The first alias of the account among `recipients`. `None` for the own address or none.
+    fn own_recipient(&self, account: &Account, recipients: &[Address]) -> Result<Option<String>> {
+        let aliases = self.core.db.with(|c| queries::aliases(c, &account.id))?;
+        Ok(recipients
+            .iter()
+            .find_map(|r| {
+                if r.email.eq_ignore_ascii_case(&account.email) {
+                    return Some(None);
+                }
+                aliases
+                    .iter()
+                    .find(|a| a.email.eq_ignore_ascii_case(&r.email))
+                    .map(|a| Some(a.email.clone()))
+            })
+            .flatten())
+    }
 
     pub async fn send(&self, draft: Draft) -> Result<()> {
         let account = self
@@ -799,7 +852,8 @@ impl App {
                 }
             }
         }
-        let message = compose::build_message(&account, &draft, attachments)?;
+        let sender = self.sender(&account, draft.from_email.as_deref())?;
+        let message = compose::build_message(&sender, &draft, attachments)?;
         smtp::send(&self.core, &account, &message).await?;
 
         let raw = message.formatted();
@@ -944,6 +998,7 @@ mod tests {
     fn views_serialize_like_the_frontend_types() {
         let a = AccountView {
             account: crate::store::queries_test_account("x"),
+            aliases: vec![],
             status: SyncState::AuthRequired,
             status_error: None,
         };
