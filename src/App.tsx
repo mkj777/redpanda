@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useTranslation } from "react-i18next";
 import i18n, { resolveLanguage } from "@/i18n";
-import { listen } from "@/lib/ipc";
-import { errorText } from "@/lib/actions";
+import { api, listen } from "@/lib/ipc";
+import { compose, errorText } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
@@ -42,7 +42,21 @@ function useLanguage() {
   const language = useSettings((s) => s.language);
   useEffect(() => {
     const lng = resolveLanguage(language);
-    void i18n.changeLanguage(lng);
+    void i18n.changeLanguage(lng).then(() => {
+      const t = i18n.t;
+      void api
+        .setTrayTexts({
+          open: t("tray.open"),
+          compose: t("tray.compose"),
+          sync: t("tray.sync"),
+          quit: t("tray.quit"),
+          // The backend fills in the number.
+          unread: t("tray.unread", { n: "{{count}}" }),
+          hintTitle: t("tray.hintTitle"),
+          hintBody: t("tray.hintBody"),
+        })
+        .catch(() => undefined);
+    });
     document.documentElement.lang = lng;
   }, [language]);
 }
@@ -67,6 +81,7 @@ function useBackendEvents() {
         if (s.state === "idle") scheduleRefresh();
       }),
       listen("action:failed", (f) => useUi.getState().toast(errorText(f.error), "error")),
+      listen("ui:compose", () => compose()),
     ];
     mail.refreshAll().finally(() => setReady(true));
     return () => {

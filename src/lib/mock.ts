@@ -457,6 +457,8 @@ function moveTo(ids: number[], role: FolderRole | number) {
   }
 }
 
+const appSettings = { closeToTray: true };
+
 export async function mockInvoke(cmd: string, args: Record<string, unknown>): Promise<unknown> {
   await delay();
   switch (cmd) {
@@ -699,6 +701,13 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
         .filter((a) => a.email.toLowerCase().startsWith(p) || a.name?.toLowerCase().split(" ").some((w) => w.startsWith(p)))
         .slice(0, 8);
     }
+    case "get_app_settings":
+      return { ...appSettings };
+    case "set_close_to_tray":
+      appSettings.closeToTray = Boolean(args.value);
+      return null;
+    case "set_tray_texts":
+      return null;
     default:
       throw { code: "other", message: `mock: unknown command ${cmd}` };
   }

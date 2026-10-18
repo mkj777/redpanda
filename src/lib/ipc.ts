@@ -265,7 +265,27 @@ export const api = {
   deleteDraft: (id: number) => call<void>("delete_draft", { id }),
   suggestContacts: (prefix: string) => call<Address[]>("suggest_contacts", { prefix }),
   setMaximizeRect: (rect: ButtonRect | null) => call<void>("set_maximize_rect", { rect }),
+  getAppSettings: () => call<AppSettings>("get_app_settings"),
+  setCloseToTray: (value: boolean) => call<void>("set_close_to_tray", { value }),
+  setTrayTexts: (texts: TrayTexts) => call<void>("set_tray_texts", { texts }),
 };
+
+/** Settings the backend keeps itself. */
+export interface AppSettings {
+  closeToTray: boolean;
+}
+
+/** Texts of the notification area icon, in the language the app shows. */
+export interface TrayTexts {
+  open: string;
+  compose: string;
+  sync: string;
+  quit: string;
+  /** Contains {{count}}. */
+  unread: string;
+  hintTitle: string;
+  hintBody: string;
+}
 
 /** Logical pixels; `right` is the distance from the right edge of the window. */
 export interface ButtonRect {
@@ -300,6 +320,7 @@ type Events = {
   "sync:status": SyncStatusEvent;
   "action:failed": ActionFailed;
   "titlebar:maximize": CaptionState;
+  "ui:compose": null;
 };
 
 export async function listen<K extends keyof Events>(

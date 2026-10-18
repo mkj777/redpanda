@@ -946,6 +946,51 @@ impl App {
             .db
             .with(|c| queries::suggest_contacts(c, prefix.trim(), 8))
     }
+
+    // -----------------------------------------------------------------------------------------
+    // App settings
+
+    pub fn app_settings(&self) -> Result<AppSettings> {
+        self.core.db.with(|c| {
+            Ok(AppSettings {
+                close_to_tray: queries::get_setting(c, SETTING_CLOSE_TO_TRAY)?.as_deref() != Some("0"),
+            })
+        })
+    }
+
+    pub fn set_close_to_tray(&self, value: bool) -> Result<()> {
+        self.core
+            .db
+            .with(|c| queries::set_setting(c, SETTING_CLOSE_TO_TRAY, if value { "1" } else { "0" }))
+    }
+
+    /// True the first time it is called, so the hint that redpanda keeps running shows once.
+    pub fn take_tray_hint(&self) -> Result<bool> {
+        self.core.db.with(|c| {
+            let shown = queries::get_setting(c, SETTING_TRAY_HINT_SHOWN)?.is_some();
+            if !shown {
+                queries::set_setting(c, SETTING_TRAY_HINT_SHOWN, "1")?;
+            }
+            Ok(!shown)
+        })
+    }
+
+    /// Unread mail in all inboxes, for the tray tooltip.
+    pub fn inbox_unread(&self) -> Result<i64> {
+        self.core
+            .db
+            .with(|c| Ok(queries::unified_counts(c)?.inbox_unread))
+    }
+}
+
+const SETTING_CLOSE_TO_TRAY: &str = "close_to_tray";
+const SETTING_TRAY_HINT_SHOWN: &str = "tray_hint_shown";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    /// Closing the window hides it and redpanda keeps running in the notification area.
+    pub close_to_tray: bool,
 }
 
 #[cfg(test)]

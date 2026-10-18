@@ -9,6 +9,7 @@ pub mod service;
 pub mod store;
 pub mod sync;
 mod titlebar;
+pub(crate) mod tray;
 pub mod unsubscribe;
 
 use std::sync::Arc;
@@ -29,6 +30,9 @@ impl EventSink for TauriEvents {
         if let Err(e) = self.0.emit(event, payload) {
             tracing::warn!("could not emit {event}: {e}");
         }
+        if event == "mail:changed" {
+            tray::update_tooltip(&self.0);
+        }
     }
 }
 
@@ -47,6 +51,11 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        // First, so a second start only brings the running window back and never opens the
+        // database a second time.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            tray::show_main(app)
+        }))
         .plugin(
             // The window is undecorated on purpose, a saved state from before must not bring the frame back.
             tauri_plugin_window_state::Builder::default()
@@ -55,6 +64,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let db = Db::open(&data_dir().join("redpanda.db"))?;
             let secrets = Secrets::load_or_create()?;
@@ -67,15 +77,23 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 titlebar::install(app.handle(), &window);
             }
+            tray::install(app.handle())?;
             Ok(())
         })
-        .on_window_event(|_, event| {
-            if matches!(
-                event,
-                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
-            ) {
-                titlebar::place();
+        .on_window_event(|window, event| match event {
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => titlebar::place(),
+            WindowEvent::CloseRequested { api, .. } => {
+                let app = window.app_handle();
+                let to_tray = app
+                    .try_state::<Arc<App>>()
+                    .and_then(|s| s.app_settings().ok())
+                    .is_none_or(|s| s.close_to_tray);
+                if to_tray {
+                    api.prevent_close();
+                    tray::hide_main(app);
+                }
             }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_accounts,
@@ -110,6 +128,9 @@ pub fn run() {
             commands::delete_draft,
             commands::suggest_contacts,
             commands::set_maximize_rect,
+            commands::get_app_settings,
+            commands::set_close_to_tray,
+            commands::set_tray_texts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running redpanda");

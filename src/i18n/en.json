@@ -242,7 +242,18 @@
       "dark": "Dark"
     },
     "threads": "Group messages into conversations",
-    "autoLoadImages": "Always load external images (except in Spam)"
+    "autoLoadImages": "Always load external images (except in Spam)",
+    "closeToTray": "Keep running in the notification area when the window is closed",
+    "closeToTrayHint": "New email keeps arriving. Quit from the icon next to the clock."
+  },
+  "tray": {
+    "open": "Open redpanda",
+    "compose": "New email",
+    "sync": "Check for new email",
+    "quit": "Quit redpanda",
+    "unread": "{{n}} unread",
+    "hintTitle": "redpanda keeps running",
+    "hintBody": "New email still arrives. To quit, right-click the icon in the notification area."
   },
   "shortcuts": {
     "nav": "Next or previous message",

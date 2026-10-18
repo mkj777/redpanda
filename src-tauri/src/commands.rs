@@ -8,7 +8,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::accounts::discovery::DiscoveryResult;
 use crate::error::{AppError, Result};
 use crate::model::*;
-use crate::service::{AccountView, App, FlagKind, FolderList, NewAccountInput, OAuthStatus};
+use crate::service::{AccountView, App, AppSettings, FlagKind, FolderList, NewAccountInput, OAuthStatus};
 
 type AppState<'a> = State<'a, Arc<App>>;
 
@@ -210,4 +210,20 @@ pub fn suggest_contacts(state: AppState<'_>, prefix: String) -> Result<Vec<Addre
 pub fn set_maximize_rect(app: AppHandle, rect: Option<crate::titlebar::ButtonRect>) -> Result<()> {
     app.run_on_main_thread(move || crate::titlebar::set_rect(rect))
         .map_err(|e| AppError::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub fn get_app_settings(state: AppState<'_>) -> Result<AppSettings> {
+    state.app_settings()
+}
+
+#[tauri::command]
+pub fn set_close_to_tray(state: AppState<'_>, value: bool) -> Result<()> {
+    state.set_close_to_tray(value)
+}
+
+/// The frontend sends the tray texts in its language, on start and when the language changes.
+#[tauri::command]
+pub fn set_tray_texts(app: AppHandle, texts: crate::tray::TrayTexts) {
+    crate::tray::set_texts(&app, texts)
 }

@@ -1,8 +1,8 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type Account } from "@/lib/ipc";
+import { api, type Account, type AppSettings } from "@/lib/ipc";
 import { errorText } from "@/lib/actions";
 import { cn } from "@/lib/format";
 import { useMail } from "@/stores/mail";
@@ -187,6 +187,16 @@ export function SettingsDialog() {
   const accounts = useMail((s) => s.accounts);
   const settings = useSettings();
   const [tab, setTab] = useState<"accounts" | "general" | "shortcuts">("accounts");
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+
+  useEffect(() => {
+    if (open) void api.getAppSettings().then(setAppSettings).catch(() => undefined);
+  }, [open]);
+
+  const setCloseToTray = async (closeToTray: boolean) => {
+    await api.setCloseToTray(closeToTray);
+    setAppSettings((s) => (s ? { ...s, closeToTray } : s));
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen} title={t("settings.title")} width={560} closeLabel={t("common.close")}>
@@ -252,6 +262,14 @@ export function SettingsDialog() {
             </Field>
             <Switch checked={settings.threads} onChange={settings.setThreads} label={t("settings.threads")} />
             <Switch checked={settings.autoLoadImages} onChange={settings.setAutoLoadImages} label={t("settings.autoLoadImages")} />
+            {appSettings && (
+              <Switch
+                checked={appSettings.closeToTray}
+                onChange={(v) => void setCloseToTray(v)}
+                label={t("settings.closeToTray")}
+                hint={t("settings.closeToTrayHint")}
+              />
+            )}
           </div>
         )}
         {tab === "shortcuts" && (

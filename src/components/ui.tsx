@@ -129,10 +129,23 @@ export function Field({ label, htmlFor, children, className }: { label: string; 
   );
 }
 
-export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+export function Switch({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  hint?: string;
+}) {
   return (
     <label className="flex cursor-pointer items-center justify-between gap-4 text-sm">
-      <span>{label}</span>
+      <span>
+        {label}
+        {hint && <span className="mt-0.5 block text-xs text-muted">{hint}</span>}
+      </span>
       <button
         role="switch"
         aria-checked={checked}

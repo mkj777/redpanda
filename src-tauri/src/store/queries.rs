@@ -160,6 +160,27 @@ pub fn replace_aliases(c: &mut Connection, account_id: &str, list: &[Address]) -
 }
 
 // ---------------------------------------------------------------------------------------------
+// App settings
+
+pub fn get_setting(c: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(
+        c.query_row("SELECT value FROM app_settings WHERE key = ?1", [key], |r| {
+            r.get(0)
+        })
+        .optional()?,
+    )
+}
+
+pub fn set_setting(c: &Connection, key: &str, value: &str) -> Result<()> {
+    c.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?1, ?2) \
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [key, value],
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
 // Secrets
 
 pub fn put_secret(
@@ -1522,6 +1543,19 @@ mod tests {
             assert_eq!(n, 0);
             let n: i64 = c.query_row("SELECT COUNT(*) FROM messages_fts", [], |r| r.get(0))?;
             assert_eq!(n, 0);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn settings_are_replaced() {
+        let db = Db::open_in_memory().unwrap();
+        db.with(|c| {
+            assert_eq!(get_setting(c, "k")?, None);
+            set_setting(c, "k", "1")?;
+            set_setting(c, "k", "0")?;
+            assert_eq!(get_setting(c, "k")?.as_deref(), Some("0"));
             Ok(())
         })
         .unwrap();

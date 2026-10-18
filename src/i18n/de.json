@@ -242,7 +242,18 @@
       "dark": "Dunkel"
     },
     "threads": "Nachrichten als Konversationen gruppieren",
-    "autoLoadImages": "Externe Bilder immer laden (außer im Spam-Ordner)"
+    "autoLoadImages": "Externe Bilder immer laden (außer im Spam-Ordner)",
+    "closeToTray": "Beim Schließen im Infobereich weiterlaufen",
+    "closeToTrayHint": "Neue E-Mails kommen weiter an. Beenden über das Symbol neben der Uhr."
+  },
+  "tray": {
+    "open": "redpanda öffnen",
+    "compose": "Neue E-Mail",
+    "sync": "Nach neuen E-Mails suchen",
+    "quit": "redpanda beenden",
+    "unread": "{{n}} ungelesen",
+    "hintTitle": "redpanda läuft weiter",
+    "hintBody": "Neue E-Mails kommen weiter an. Zum Beenden mit der rechten Maustaste auf das Symbol im Infobereich klicken."
   },
   "shortcuts": {
     "nav": "Nächste oder vorherige Nachricht",
