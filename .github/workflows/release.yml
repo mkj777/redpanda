@@ -30,8 +30,13 @@ jobs:
           REDPANDA_GOOGLE_CLIENT_ID: ${{ secrets.REDPANDA_GOOGLE_CLIENT_ID }}
           REDPANDA_GOOGLE_CLIENT_SECRET: ${{ secrets.REDPANDA_GOOGLE_CLIENT_SECRET }}
           REDPANDA_MICROSOFT_CLIENT_ID: ${{ secrets.REDPANDA_MICROSOFT_CLIENT_ID }}
+          # Signs the update packages, the app checks them against the public key in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }}
           releaseName: redpanda ${{ github.ref_name }}
           releaseDraft: true
           prerelease: false
+          # latest.json points the updater at the NSIS installer.
+          updaterJsonPreferNsis: true

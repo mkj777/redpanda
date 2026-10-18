@@ -36,7 +36,11 @@ The server listens on `127.0.0.1` only, needs the key shown in the settings, and
 
 ## Install
 
-Prebuilt installers will be published under [Releases](https://github.com/mkj777/redpanda/releases). Until then, build it yourself (below).
+Download `redpanda_x.y.z_x64-setup.exe` from [Releases](https://github.com/mkj777/redpanda/releases) and run it. It installs for your user only and needs no administrator rights. The installer isn't code-signed yet, so Windows SmartScreen may warn first: choose **More info** and then **Run anyway**.
+
+- **Updates**: redpanda checks GitHub for a new version shortly after starting and every six hours, and offers to install it. Settings, General shows the version and has a button to check now. Updates are signed; redpanda only installs packages signed with the project's key.
+- **Start with Windows**: on by default. redpanda then starts in the notification area without a window. Switch it off under Settings, General.
+- **Uninstall** through Windows Settings, Apps. Tick "Delete the application data" to remove the local mail cache too, including the encrypted passwords and tokens. The encryption key stays in the Windows Credential Manager under "redpanda" until you delete it there.
 
 ## Build from source
 
@@ -68,10 +72,10 @@ If you build redpanda yourself, the IDs are not included. Register your own clie
 ## Privacy
 
 - Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings. For Gmail accounts it reads the "Send mail as" addresses from your Gmail settings. When you unsubscribe from a newsletter, it also contacts that sender's unsubscribe address.
-- Mail is cached in a local SQLite database in `%LOCALAPPDATA%\redpanda`.
+- Mail is cached in a local SQLite database in `%LOCALAPPDATA%\io.github.mkj777.redpanda`.
 - Passwords and tokens are encrypted (ChaCha20-Poly1305) with a key kept in the Windows Credential Manager. They never reach the user interface or log files. See [ADR 0002](docs/adr/0002-secrets-encrypted-in-sqlite.md).
 - With access for Claude Code switched on, Claude Code can read and send mail through redpanda's local MCP server. What Claude reads goes to Anthropic like everything else in a Claude Code session. It's off by default.
-- No telemetry.
+- No telemetry. The update check only downloads `latest.json` from GitHub.
 
 ## Development
 

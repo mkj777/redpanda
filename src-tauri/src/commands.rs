@@ -222,6 +222,28 @@ pub fn set_close_to_tray(state: AppState<'_>, value: bool) -> Result<()> {
     state.set_close_to_tray(value)
 }
 
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, state: AppState<'_>, value: bool) -> Result<()> {
+    state.set_autostart(value)?;
+    crate::apply_autostart(&app, value);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_status(app: AppHandle) -> crate::update::UpdateStatus {
+    crate::update::status(&app)
+}
+
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> Result<Option<crate::update::UpdateInfo>> {
+    crate::update::check(&app).await
+}
+
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<()> {
+    crate::update::install(&app).await
+}
+
 /// The frontend sends the tray texts in its language, on start and when the language changes.
 #[tauri::command]
 pub fn set_tray_texts(app: AppHandle, texts: crate::tray::TrayTexts) {

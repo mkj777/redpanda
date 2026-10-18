@@ -9,6 +9,7 @@ import { useMail } from "@/stores/mail";
 import { useSettings, type Language, type Theme } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
 import { ClaudeSettings } from "./ClaudeSettings";
+import { UpdateSettings } from "./UpdateSettings";
 import { ProviderIcon } from "./ProviderIcon";
 import { Button, Dialog, Field, IconButton, Input, Select, Spinner, Switch } from "./ui";
 
@@ -199,6 +200,11 @@ export function SettingsDialog() {
     setAppSettings((s) => (s ? { ...s, closeToTray } : s));
   };
 
+  const setAutostart = async (autostart: boolean) => {
+    await api.setAutostart(autostart);
+    setAppSettings((s) => (s ? { ...s, autostart } : s));
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen} title={t("settings.title")} width={560} closeLabel={t("common.close")}>
       <div role="tablist" className="flex gap-4 border-b border-line px-4">
@@ -264,13 +270,22 @@ export function SettingsDialog() {
             <Switch checked={settings.threads} onChange={settings.setThreads} label={t("settings.threads")} />
             <Switch checked={settings.autoLoadImages} onChange={settings.setAutoLoadImages} label={t("settings.autoLoadImages")} />
             {appSettings && (
-              <Switch
-                checked={appSettings.closeToTray}
-                onChange={(v) => void setCloseToTray(v)}
-                label={t("settings.closeToTray")}
-                hint={t("settings.closeToTrayHint")}
-              />
+              <>
+                <Switch
+                  checked={appSettings.closeToTray}
+                  onChange={(v) => void setCloseToTray(v)}
+                  label={t("settings.closeToTray")}
+                  hint={t("settings.closeToTrayHint")}
+                />
+                <Switch
+                  checked={appSettings.autostart}
+                  onChange={(v) => void setAutostart(v)}
+                  label={t("settings.autostart")}
+                  hint={t("settings.autostartHint")}
+                />
+              </>
             )}
+            <UpdateSettings />
           </div>
         )}
         {tab === "claude" && <ClaudeSettings />}

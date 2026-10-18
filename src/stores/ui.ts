@@ -49,7 +49,7 @@ export const useUi = create<UiState>()((set, get) => ({
   toast: (text, tone = "info", action) => {
     const id = toastSeq++;
     set({ toasts: [...get().toasts.slice(-3), { id, text, tone, action }] });
-    setTimeout(() => get().dismissToast(id), tone === "error" ? 8000 : 4000);
+    setTimeout(() => get().dismissToast(id), tone === "error" || action ? 8000 : 4000);
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));

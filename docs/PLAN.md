@@ -39,7 +39,7 @@ Each milestone is usable on its own and lands on `main`.
 - Sync drafts to the IMAP Drafts folder
 - HTML compose
 - QRESYNC for faster flag and deletion sync on large folders
-- Signed release builds and auto-update
+- Code-signed installers (Authenticode), so SmartScreen stops warning. Auto-update is done, see [ADR 0009](adr/0009-releases-and-updates.md)
 - Google verification (CASA) for the Gmail client once redpanda gets close to 100 Gmail users, see [ADR 0004](adr/0004-bundled-oauth-client-ids.md)
 - Microsoft publisher verification to drop the "unverified" label in the consent dialog
 

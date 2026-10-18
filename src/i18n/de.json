@@ -245,7 +245,9 @@
     "threads": "Nachrichten als Konversationen gruppieren",
     "autoLoadImages": "Externe Bilder immer laden (außer im Spam-Ordner)",
     "closeToTray": "Beim Schließen im Infobereich weiterlaufen",
-    "closeToTrayHint": "Neue E-Mails kommen weiter an. Beenden über das Symbol neben der Uhr."
+    "closeToTrayHint": "Neue E-Mails kommen weiter an. Beenden über das Symbol neben der Uhr.",
+    "autostart": "Mit Windows starten",
+    "autostartHint": "redpanda startet beim Anmelden im Infobereich, ohne Fenster."
   },
   "claude": {
     "enable": "Zugriff für Claude Code erlauben",
@@ -270,6 +272,15 @@
     "copied": "In die Zwischenablage kopiert",
     "port": "Port",
     "safety": "Claude Code fragt vor jedem Senden nach. Erlaube send_mail nicht dauerhaft, dann siehst du jede E-Mail, bevor sie rausgeht."
+  },
+  "update": {
+    "version": "redpanda {{version}}",
+    "check": "Nach Updates suchen",
+    "upToDate": "redpanda ist aktuell.",
+    "available": "redpanda {{version}} ist verfügbar.",
+    "install": "Jetzt installieren",
+    "installing": "Update wird geladen. redpanda startet danach neu.",
+    "devBuild": "Updates gibt es nur in der installierten Version."
   },
   "tray": {
     "open": "redpanda öffnen",

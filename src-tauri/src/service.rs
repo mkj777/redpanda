@@ -975,6 +975,7 @@ impl App {
         self.core.db.with(|c| {
             Ok(AppSettings {
                 close_to_tray: queries::get_setting(c, SETTING_CLOSE_TO_TRAY)?.as_deref() != Some("0"),
+                autostart: queries::get_setting(c, SETTING_AUTOSTART)?.as_deref() != Some("0"),
             })
         })
     }
@@ -983,6 +984,12 @@ impl App {
         self.core
             .db
             .with(|c| queries::set_setting(c, SETTING_CLOSE_TO_TRAY, if value { "1" } else { "0" }))
+    }
+
+    pub fn set_autostart(&self, value: bool) -> Result<()> {
+        self.core
+            .db
+            .with(|c| queries::set_setting(c, SETTING_AUTOSTART, if value { "1" } else { "0" }))
     }
 
     /// True the first time it is called, so the hint that redpanda keeps running shows once.
@@ -1006,12 +1013,15 @@ impl App {
 
 const SETTING_CLOSE_TO_TRAY: &str = "close_to_tray";
 const SETTING_TRAY_HINT_SHOWN: &str = "tray_hint_shown";
+const SETTING_AUTOSTART: &str = "autostart";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     /// Closing the window hides it and redpanda keeps running in the notification area.
     pub close_to_tray: bool,
+    /// Starts with Windows, straight into the notification area.
+    pub autostart: bool,
 }
 
 #[cfg(test)]

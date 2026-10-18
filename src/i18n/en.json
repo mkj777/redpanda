@@ -245,7 +245,9 @@
     "threads": "Group messages into conversations",
     "autoLoadImages": "Always load external images (except in Spam)",
     "closeToTray": "Keep running in the notification area when the window is closed",
-    "closeToTrayHint": "New email keeps arriving. Quit from the icon next to the clock."
+    "closeToTrayHint": "New email keeps arriving. Quit from the icon next to the clock.",
+    "autostart": "Start with Windows",
+    "autostartHint": "redpanda starts in the notification area when you sign in, without a window."
   },
   "claude": {
     "enable": "Allow access for Claude Code",
@@ -270,6 +272,15 @@
     "copied": "Copied to the clipboard",
     "port": "Port",
     "safety": "Claude Code asks before every send. Don't allow send_mail permanently, so you see every email before it goes out."
+  },
+  "update": {
+    "version": "redpanda {{version}}",
+    "check": "Check for updates",
+    "upToDate": "redpanda is up to date.",
+    "available": "redpanda {{version}} is available.",
+    "install": "Install now",
+    "installing": "Downloading the update. redpanda restarts afterwards.",
+    "devBuild": "Updates are only available in the installed version."
   },
   "tray": {
     "open": "Open redpanda",

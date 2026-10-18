@@ -5,7 +5,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useTranslation } from "react-i18next";
 import i18n, { resolveLanguage } from "@/i18n";
 import { api, listen } from "@/lib/ipc";
-import { compose, errorText } from "@/lib/actions";
+import { compose, errorText, installUpdate } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
@@ -83,6 +83,12 @@ function useBackendEvents() {
       }),
       listen("action:failed", (f) => useUi.getState().toast(errorText(f.error), "error")),
       listen("ui:compose", () => compose()),
+      listen("update:available", (u) =>
+        useUi.getState().toast(i18n.t("update.available", { version: u.version }), "info", {
+          label: i18n.t("update.install"),
+          run: () => void installUpdate(),
+        }),
+      ),
     ];
     mail.refreshAll().finally(() => setReady(true));
     return () => {

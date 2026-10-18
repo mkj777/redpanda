@@ -23,6 +23,16 @@ export function reportError(e: unknown) {
   useUi.getState().toast(errorText(e), "error");
 }
 
+/** Downloads the update; the installer then closes redpanda and starts the new version. */
+export async function installUpdate() {
+  useUi.getState().toast(i18n.t("update.installing"));
+  try {
+    await api.installUpdate();
+  } catch (e) {
+    reportError(e);
+  }
+}
+
 function threadsFor() {
   const { view } = useMail.getState();
   return useSettings.getState().threads && view.kind !== "search";

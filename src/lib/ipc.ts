@@ -267,6 +267,11 @@ export const api = {
   setMaximizeRect: (rect: ButtonRect | null) => call<void>("set_maximize_rect", { rect }),
   getAppSettings: () => call<AppSettings>("get_app_settings"),
   setCloseToTray: (value: boolean) => call<void>("set_close_to_tray", { value }),
+  setAutostart: (value: boolean) => call<void>("set_autostart", { value }),
+  updateStatus: () => call<UpdateStatus>("update_status"),
+  checkForUpdate: () => call<UpdateInfo | null>("check_for_update"),
+  /** Closes redpanda and starts the new version once installed. */
+  installUpdate: () => call<void>("install_update"),
   setTrayTexts: (texts: TrayTexts) => call<void>("set_tray_texts", { texts }),
   mcpStatus: () => call<McpStatus>("mcp_status"),
   setMcpEnabled: (value: boolean) => call<McpStatus>("set_mcp_enabled", { value }),
@@ -292,6 +297,21 @@ export interface McpStatus {
 /** Settings the backend keeps itself. */
 export interface AppSettings {
   closeToTray: boolean;
+  /** Starts with Windows, straight into the notification area. */
+  autostart: boolean;
+}
+
+/** A newer release on GitHub. */
+export interface UpdateInfo {
+  version: string;
+  notes: string | null;
+}
+
+export interface UpdateStatus {
+  version: string;
+  /** False in dev builds, they don't update themselves. */
+  supported: boolean;
+  available: UpdateInfo | null;
 }
 
 /** Texts of the notification area icon, in the language the app shows. */
@@ -342,6 +362,7 @@ type Events = {
   "titlebar:maximize": CaptionState;
   "ui:compose": null;
   "mcp:changed": { enabled: boolean };
+  "update:available": UpdateInfo;
 };
 
 export async function listen<K extends keyof Events>(

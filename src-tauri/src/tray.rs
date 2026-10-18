@@ -7,7 +7,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_notification::NotificationExt;
-use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+use tauri_plugin_window_state::AppHandleExt;
 
 use crate::mcp::Mcp;
 use crate::service::App;
@@ -215,7 +215,7 @@ pub fn hide_main(app: &AppHandle) {
 }
 
 pub fn quit_app(app: &AppHandle) {
-    if let Err(e) = app.save_window_state(StateFlags::all() - StateFlags::DECORATIONS) {
+    if let Err(e) = app.save_window_state(crate::window_state_flags()) {
         tracing::warn!("could not save the window state: {e}");
     }
     app.exit(0);

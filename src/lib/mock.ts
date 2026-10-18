@@ -457,7 +457,7 @@ function moveTo(ids: number[], role: FolderRole | number) {
   }
 }
 
-const appSettings = { closeToTray: true };
+const appSettings = { closeToTray: true, autostart: true };
 
 const mcp = { enabled: false, port: 47821, keyCreated: false, key: `rp_${"3f2a".repeat(16)}` };
 
@@ -719,6 +719,15 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       return { ...appSettings };
     case "set_close_to_tray":
       appSettings.closeToTray = Boolean(args.value);
+      return null;
+    case "set_autostart":
+      appSettings.autostart = Boolean(args.value);
+      return null;
+    case "update_status":
+      return { version: "0.1.0", supported: true, available: null };
+    case "check_for_update":
+      return null;
+    case "install_update":
       return null;
     case "set_tray_texts":
       return null;
