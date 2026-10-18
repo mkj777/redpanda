@@ -8,6 +8,7 @@ import { cn } from "@/lib/format";
 import { useMail } from "@/stores/mail";
 import { useSettings, type Language, type Theme } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
+import { ClaudeSettings } from "./ClaudeSettings";
 import { ProviderIcon } from "./ProviderIcon";
 import { Button, Dialog, Field, IconButton, Input, Select, Spinner, Switch } from "./ui";
 
@@ -186,7 +187,7 @@ export function SettingsDialog() {
   const setWizardOpen = useUi((s) => s.setWizardOpen);
   const accounts = useMail((s) => s.accounts);
   const settings = useSettings();
-  const [tab, setTab] = useState<"accounts" | "general" | "shortcuts">("accounts");
+  const [tab, setTab] = useState<"accounts" | "general" | "claude" | "shortcuts">("accounts");
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
   useEffect(() => {
@@ -201,7 +202,7 @@ export function SettingsDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen} title={t("settings.title")} width={560} closeLabel={t("common.close")}>
       <div role="tablist" className="flex gap-4 border-b border-line px-4">
-        {(["accounts", "general", "shortcuts"] as const).map((k) => (
+        {(["accounts", "general", "claude", "shortcuts"] as const).map((k) => (
           <button
             key={k}
             role="tab"
@@ -272,6 +273,7 @@ export function SettingsDialog() {
             )}
           </div>
         )}
+        {tab === "claude" && <ClaudeSettings />}
         {tab === "shortcuts" && (
           <table className="mt-2 w-full text-[13px]">
             <tbody>

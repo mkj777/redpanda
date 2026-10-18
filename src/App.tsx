@@ -49,6 +49,7 @@ function useLanguage() {
           open: t("tray.open"),
           compose: t("tray.compose"),
           sync: t("tray.sync"),
+          claude: t("tray.claude"),
           quit: t("tray.quit"),
           // The backend fills in the number.
           unread: t("tray.unread", { n: "{{count}}" }),

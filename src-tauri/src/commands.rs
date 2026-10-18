@@ -227,3 +227,44 @@ pub fn set_close_to_tray(state: AppState<'_>, value: bool) -> Result<()> {
 pub fn set_tray_texts(app: AppHandle, texts: crate::tray::TrayTexts) {
     crate::tray::set_texts(&app, texts)
 }
+
+type McpState<'a> = State<'a, Arc<crate::mcp::Mcp>>;
+
+#[tauri::command]
+pub async fn mcp_status(mcp: McpState<'_>) -> Result<crate::mcp::McpStatus> {
+    Ok(mcp.status().await)
+}
+
+#[tauri::command]
+pub async fn set_mcp_enabled(mcp: McpState<'_>, value: bool) -> Result<crate::mcp::McpStatus> {
+    mcp.set_enabled(value).await?;
+    Ok(mcp.status().await)
+}
+
+#[tauri::command]
+pub async fn set_mcp_port(mcp: McpState<'_>, port: u16) -> Result<crate::mcp::McpStatus> {
+    mcp.set_port(port).await?;
+    Ok(mcp.status().await)
+}
+
+/// Only on the user's request in the settings, to copy it by hand.
+#[tauri::command]
+pub fn mcp_reveal_key(mcp: McpState<'_>) -> Result<String> {
+    mcp.key()
+}
+
+#[tauri::command]
+pub async fn mcp_rotate_key(mcp: McpState<'_>) -> Result<crate::mcp::McpStatus> {
+    mcp.rotate_key()?;
+    Ok(mcp.status().await)
+}
+
+#[tauri::command]
+pub async fn mcp_connect_claude(mcp: McpState<'_>) -> Result<()> {
+    mcp.connect_claude().await
+}
+
+#[tauri::command]
+pub fn mcp_command_line(mcp: McpState<'_>) -> Result<String> {
+    mcp.claude_command_line()
+}

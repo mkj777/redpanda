@@ -77,7 +77,7 @@ pub enum FlagKind {
 }
 
 /// File types that are never opened directly, only saved.
-const BLOCKED_EXTENSIONS: &[&str] = &[
+pub(crate) const BLOCKED_EXTENSIONS: &[&str] = &[
     "exe",
     "com",
     "bat",
@@ -661,7 +661,8 @@ impl App {
         self.core.db.with(|c| queries::allow_remote_content(c, sender))
     }
 
-    fn attachment(&self, message_id: i64, index: u32) -> Result<(String, String, Vec<u8>)> {
+    /// Name, MIME type and content of an attachment, from the stored raw message.
+    pub(crate) fn attachment(&self, message_id: i64, index: u32) -> Result<(String, String, Vec<u8>)> {
         let raw = self
             .core
             .db
@@ -799,6 +800,26 @@ impl App {
         Ok(Address {
             name: alias.name.or(own.name),
             email: alias.email,
+        })
+    }
+
+    /// The account `email` belongs to, and the alias to send from when it is not the account's
+    /// own address. Fails for addresses that are neither.
+    pub fn resolve_sender(&self, email: &str) -> Result<(String, Option<String>)> {
+        let email = email.trim();
+        self.core.db.with(|c| {
+            for account in queries::list_accounts(c)? {
+                if account.email.eq_ignore_ascii_case(email) {
+                    return Ok((account.id, None));
+                }
+                if let Some(alias) = queries::aliases(c, &account.id)?
+                    .into_iter()
+                    .find(|a| a.email.eq_ignore_ascii_case(email))
+                {
+                    return Ok((account.id, Some(alias.email)));
+                }
+            }
+            Err(AppError::Invalid("unknown_sender".into()))
         })
     }
 

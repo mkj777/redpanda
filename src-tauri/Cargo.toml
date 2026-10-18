@@ -48,6 +48,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
+rmcp = { version = "3.5.1", features = ["server", "macros", "transport-streamable-http-server"] }
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1", "json"] }
+subtle = "2.6.1"
+tokio-util = "0.7.20"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
@@ -66,3 +70,6 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+rmcp = { version = "3.5.1", features = ["client", "transport-streamable-http-client-reqwest"] }

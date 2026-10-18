@@ -220,6 +220,7 @@
     "tab": {
       "accounts": "Konten",
       "general": "Allgemein",
+      "claude": "Claude Code",
       "shortcuts": "Tastenkürzel"
     },
     "displayName": "Anzeigename",
@@ -246,10 +247,35 @@
     "closeToTray": "Beim Schließen im Infobereich weiterlaufen",
     "closeToTrayHint": "Neue E-Mails kommen weiter an. Beenden über das Symbol neben der Uhr."
   },
+  "claude": {
+    "enable": "Zugriff für Claude Code erlauben",
+    "enableHint": "Claude Code kann dann die E-Mails aller Konten lesen, durchsuchen und von deinen Adressen senden. Nur auf diesem Rechner und nur, solange redpanda läuft.",
+    "running": "Läuft auf {{url}}",
+    "starting": "Wird gestartet",
+    "portInUse": "Port {{port}} ist belegt. Wähle unten einen anderen.",
+    "portInvalid": "Der Port muss zwischen 1024 und 65535 liegen.",
+    "connectTitle": "Mit Claude Code verbinden",
+    "connectText": "Trägt redpanda für dein Benutzerkonto in Claude Code ein. Danach in einer neuen Claude-Code-Sitzung mit /mcp prüfen.",
+    "connect": "In Claude Code eintragen",
+    "connected": "redpanda ist in Claude Code eingetragen",
+    "copyCommand": "Befehl kopieren",
+    "notInstalled": "Der Befehl claude wurde nicht gefunden. Kopiere den Befehl und führe ihn selbst aus.",
+    "key": "Schlüssel",
+    "keyHint": "Wer den Schlüssel hat, kann über redpanda deine E-Mails lesen und senden. Er gilt nur auf diesem Rechner. Passwörter und Anmeldedaten der Konten bleiben in redpanda.",
+    "showKey": "Schlüssel anzeigen",
+    "hideKey": "Schlüssel verbergen",
+    "copyKey": "Schlüssel kopieren",
+    "rotateKey": "Neuen Schlüssel erzeugen",
+    "rotated": "Neuer Schlüssel. Trage redpanda in Claude Code neu ein.",
+    "copied": "In die Zwischenablage kopiert",
+    "port": "Port",
+    "safety": "Claude Code fragt vor jedem Senden nach. Erlaube send_mail nicht dauerhaft, dann siehst du jede E-Mail, bevor sie rausgeht."
+  },
   "tray": {
     "open": "redpanda öffnen",
     "compose": "Neue E-Mail",
     "sync": "Nach neuen E-Mails suchen",
+    "claude": "Zugriff für Claude Code",
     "quit": "redpanda beenden",
     "unread": "{{n}} ungelesen",
     "hintTitle": "redpanda läuft weiter",

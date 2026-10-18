@@ -3,12 +3,13 @@
 use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
+use crate::mcp::Mcp;
 use crate::service::App;
 
 /// Menu and tooltip texts in the language the frontend shows, sent by it on start.
@@ -18,6 +19,7 @@ pub struct TrayTexts {
     pub open: String,
     pub compose: String,
     pub sync: String,
+    pub claude: String,
     pub quit: String,
     /// Contains `{{count}}`.
     pub unread: String,
@@ -31,6 +33,7 @@ impl Default for TrayTexts {
             open: "Open redpanda".into(),
             compose: "New email".into(),
             sync: "Check for new email".into(),
+            claude: "Access for Claude Code".into(),
             quit: "Quit".into(),
             unread: "{{count}} unread".into(),
             hint_title: "redpanda keeps running".into(),
@@ -44,6 +47,7 @@ struct Tray {
     open: MenuItem<Wry>,
     compose: MenuItem<Wry>,
     sync: MenuItem<Wry>,
+    claude: CheckMenuItem<Wry>,
     quit: MenuItem<Wry>,
     texts: Mutex<TrayTexts>,
 }
@@ -53,6 +57,8 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", &texts.open, true, None::<&str>)?;
     let compose = MenuItem::with_id(app, "compose", &texts.compose, true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", &texts.sync, true, None::<&str>)?;
+    let mcp_on = app.try_state::<Arc<Mcp>>().is_some_and(|m| m.enabled());
+    let claude = CheckMenuItem::with_id(app, "claude", &texts.claude, true, mcp_on, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", &texts.quit, true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -60,6 +66,8 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &open,
             &compose,
             &sync,
+            &PredefinedMenuItem::separator(app)?,
+            &claude,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -77,6 +85,17 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             "sync" => {
                 if let Some(state) = app.try_state::<Arc<App>>() {
                     state.sync_now(None);
+                }
+            }
+            "claude" => {
+                if let Some(mcp) = app.try_state::<Arc<Mcp>>() {
+                    let mcp = mcp.inner().clone();
+                    let value = !mcp.enabled();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = mcp.set_enabled(value).await {
+                            tracing::warn!("could not switch the MCP server: {e}");
+                        }
+                    });
                 }
             }
             "quit" => quit_app(app),
@@ -101,6 +120,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         open,
         compose,
         sync,
+        claude,
         quit,
         texts: Mutex::new(texts),
     });
@@ -122,6 +142,9 @@ pub fn set_texts(app: &AppHandle, texts: TrayTexts) {
             tracing::warn!("could not set a tray menu text: {e}");
         }
     }
+    if let Err(e) = tray.claude.set_text(&texts.claude) {
+        tracing::warn!("could not set a tray menu text: {e}");
+    }
     if let Ok(mut t) = tray.texts.lock() {
         *t = texts;
     }
@@ -140,6 +163,16 @@ pub fn update_tooltip(app: &AppHandle) {
     };
     if let Err(e) = tray.icon.set_tooltip(Some(tooltip)) {
         tracing::warn!("could not set the tray tooltip: {e}");
+    }
+}
+
+/// Keeps the check mark in line with the setting, however it was switched.
+pub fn set_mcp_checked(app: &AppHandle) {
+    let (Some(tray), Some(mcp)) = (app.try_state::<Tray>(), app.try_state::<Arc<Mcp>>()) else {
+        return;
+    };
+    if let Err(e) = tray.claude.set_checked(mcp.enabled()) {
+        tracing::warn!("could not update the tray menu: {e}");
     }
 }
 

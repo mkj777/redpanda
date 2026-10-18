@@ -13,13 +13,26 @@ A minimal desktop mail client for Windows. Gmail, Outlook/Microsoft 365 and any 
 - **Unified views**: all inboxes, unread and starred across every account, each account marked with its color
 - **Three resizable columns** that remember their width; the folder column collapses to an icon rail
 - **Conversations**: messages grouped by thread, can be turned off in settings
-- **Push**: IMAP IDLE on the inbox, other folders are checked every few minutes
+- **Push**: IMAP IDLE on the inbox, other folders are checked every few minutes. Closing the window keeps redpanda running in the notification area.
 - **Privacy**: mail HTML is sanitized in Rust and shown in a sandboxed frame without scripts; remote images stay blocked until you allow them, per message or per sender
 - **Writing**: plain-text messages, reply, reply all, forward (with the original attachments), attachments, address autocomplete, drafts saved locally while you type, sending from your Gmail "Send mail as" addresses
 - **Newsletters**: "Unsubscribe" next to the sender like in Gmail, with one click where the sender supports it and otherwise by email or on its page, plus a view of every newsletter sender and how often it writes
 - **Search** over everything that has been synced, instantly (SQLite FTS5)
 - **Keyboard**: `j`/`k` to move, `c` compose, `r`/`a`/`f` reply, reply all, forward, `e` archive, `#` delete, `s` star, `u` read/unread, `/` search
+- **Claude Code**: an optional MCP server lets [Claude Code](https://claude.com/claude-code) read, search and send your mail through redpanda (below)
 - English and German, light and dark theme following Windows
+
+## Claude Code
+
+redpanda can serve as an MCP server, so Claude Code reads and writes mail for you from every account you signed in to, without ever seeing a password or token.
+
+1. In redpanda open Settings, Claude Code, and switch on "Allow access for Claude Code".
+2. Click "Add to Claude Code". Without the `claude` command on your PATH, copy the command and run it in a terminal.
+3. Start a new Claude Code session and check with `/mcp` that redpanda is connected.
+
+The tools: `list_accounts`, `list_folders`, `list_messages`, `search_messages`, `read_message`, `read_thread`, `get_attachment`, `create_draft` and `send_mail`. Reading through Claude doesn't mark mail as read. Claude Code asks before every tool call it hasn't been allowed; keep `send_mail` on asking, so you see every email before it goes out.
+
+The server listens on `127.0.0.1` only, needs the key shown in the settings, and only runs while redpanda does (also in the notification area). Details in [ADR 0008](docs/adr/0008-mcp-server.md).
 
 ## Install
 
@@ -57,6 +70,7 @@ If you build redpanda yourself, the IDs are not included. Register your own clie
 - Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings. For Gmail accounts it reads the "Send mail as" addresses from your Gmail settings. When you unsubscribe from a newsletter, it also contacts that sender's unsubscribe address.
 - Mail is cached in a local SQLite database in `%LOCALAPPDATA%\redpanda`.
 - Passwords and tokens are encrypted (ChaCha20-Poly1305) with a key kept in the Windows Credential Manager. They never reach the user interface or log files. See [ADR 0002](docs/adr/0002-secrets-encrypted-in-sqlite.md).
+- With access for Claude Code switched on, Claude Code can read and send mail through redpanda's local MCP server. What Claude reads goes to Anthropic like everything else in a Claude Code session. It's off by default.
 - No telemetry.
 
 ## Development

@@ -220,6 +220,7 @@
     "tab": {
       "accounts": "Accounts",
       "general": "General",
+      "claude": "Claude Code",
       "shortcuts": "Shortcuts"
     },
     "displayName": "Display name",
@@ -246,10 +247,35 @@
     "closeToTray": "Keep running in the notification area when the window is closed",
     "closeToTrayHint": "New email keeps arriving. Quit from the icon next to the clock."
   },
+  "claude": {
+    "enable": "Allow access for Claude Code",
+    "enableHint": "Claude Code can then read and search the email of all accounts and send from your addresses. Only on this computer and only while redpanda runs.",
+    "running": "Running on {{url}}",
+    "starting": "Starting",
+    "portInUse": "Port {{port}} is in use. Pick another one below.",
+    "portInvalid": "The port must be between 1024 and 65535.",
+    "connectTitle": "Connect to Claude Code",
+    "connectText": "Adds redpanda to Claude Code for your user. Then check with /mcp in a new Claude Code session.",
+    "connect": "Add to Claude Code",
+    "connected": "redpanda was added to Claude Code",
+    "copyCommand": "Copy command",
+    "notInstalled": "The claude command was not found. Copy the command and run it yourself.",
+    "key": "Key",
+    "keyHint": "Whoever has the key can read and send your email through redpanda. It only works on this computer. Account passwords and sign-ins stay inside redpanda.",
+    "showKey": "Show key",
+    "hideKey": "Hide key",
+    "copyKey": "Copy key",
+    "rotateKey": "Create a new key",
+    "rotated": "New key. Add redpanda to Claude Code again.",
+    "copied": "Copied to the clipboard",
+    "port": "Port",
+    "safety": "Claude Code asks before every send. Don't allow send_mail permanently, so you see every email before it goes out."
+  },
   "tray": {
     "open": "Open redpanda",
     "compose": "New email",
     "sync": "Check for new email",
+    "claude": "Access for Claude Code",
     "quit": "Quit redpanda",
     "unread": "{{n}} unread",
     "hintTitle": "redpanda keeps running",

@@ -459,6 +459,20 @@ function moveTo(ids: number[], role: FolderRole | number) {
 
 const appSettings = { closeToTray: true };
 
+const mcp = { enabled: false, port: 47821, keyCreated: false, key: `rp_${"3f2a".repeat(16)}` };
+
+function mcpStatus() {
+  return {
+    enabled: mcp.enabled,
+    port: mcp.port,
+    running: mcp.enabled,
+    error: null,
+    keyMasked: mcp.keyCreated ? `rp_••••••••••••${mcp.key.slice(-4)}` : null,
+    claudeAvailable: true,
+    url: `http://127.0.0.1:${mcp.port}/mcp`,
+  };
+}
+
 export async function mockInvoke(cmd: string, args: Record<string, unknown>): Promise<unknown> {
   await delay();
   switch (cmd) {
@@ -708,6 +722,25 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       return null;
     case "set_tray_texts":
       return null;
+    case "mcp_status":
+      return mcpStatus();
+    case "set_mcp_enabled":
+      mcp.enabled = Boolean(args.value);
+      mcp.keyCreated ||= mcp.enabled;
+      emit("mcp:changed", { enabled: mcp.enabled });
+      return mcpStatus();
+    case "set_mcp_port":
+      mcp.port = Number(args.port);
+      return mcpStatus();
+    case "mcp_reveal_key":
+      return mcp.key;
+    case "mcp_rotate_key":
+      mcp.key = `rp_${Math.random().toString(16).slice(2).padEnd(64, "0")}`;
+      return mcpStatus();
+    case "mcp_connect_claude":
+      return null;
+    case "mcp_command_line":
+      return `claude mcp add --scope user --transport http redpanda http://127.0.0.1:${mcp.port}/mcp --header "Authorization: Bearer ${mcp.key}"`;
     default:
       throw { code: "other", message: `mock: unknown command ${cmd}` };
   }

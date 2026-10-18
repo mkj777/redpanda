@@ -268,7 +268,26 @@ export const api = {
   getAppSettings: () => call<AppSettings>("get_app_settings"),
   setCloseToTray: (value: boolean) => call<void>("set_close_to_tray", { value }),
   setTrayTexts: (texts: TrayTexts) => call<void>("set_tray_texts", { texts }),
+  mcpStatus: () => call<McpStatus>("mcp_status"),
+  setMcpEnabled: (value: boolean) => call<McpStatus>("set_mcp_enabled", { value }),
+  setMcpPort: (port: number) => call<McpStatus>("set_mcp_port", { port }),
+  mcpRevealKey: () => call<string>("mcp_reveal_key"),
+  mcpRotateKey: () => call<McpStatus>("mcp_rotate_key"),
+  mcpConnectClaude: () => call<void>("mcp_connect_claude"),
+  mcpCommandLine: () => call<string>("mcp_command_line"),
 };
+
+/** The MCP server Claude Code connects to. */
+export interface McpStatus {
+  enabled: boolean;
+  port: number;
+  running: boolean;
+  /** "port_in_use" or another message when it could not start. */
+  error: string | null;
+  keyMasked: string | null;
+  claudeAvailable: boolean;
+  url: string;
+}
 
 /** Settings the backend keeps itself. */
 export interface AppSettings {
@@ -280,6 +299,7 @@ export interface TrayTexts {
   open: string;
   compose: string;
   sync: string;
+  claude: string;
   quit: string;
   /** Contains {{count}}. */
   unread: string;
@@ -321,6 +341,7 @@ type Events = {
   "action:failed": ActionFailed;
   "titlebar:maximize": CaptionState;
   "ui:compose": null;
+  "mcp:changed": { enabled: boolean };
 };
 
 export async function listen<K extends keyof Events>(

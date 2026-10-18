@@ -2,6 +2,7 @@ pub mod accounts;
 mod commands;
 pub mod core;
 pub mod error;
+pub mod mcp;
 pub mod mime;
 pub mod model;
 pub mod send;
@@ -30,8 +31,10 @@ impl EventSink for TauriEvents {
         if let Err(e) = self.0.emit(event, payload) {
             tracing::warn!("could not emit {event}: {e}");
         }
-        if event == "mail:changed" {
-            tray::update_tooltip(&self.0);
+        match event {
+            "mail:changed" => tray::update_tooltip(&self.0),
+            "mcp:changed" => tray::set_mcp_checked(&self.0),
+            _ => {}
         }
     }
 }
@@ -73,7 +76,11 @@ pub fn run() {
             let state = Arc::new(App::new(core));
             // Workers use tokio::spawn, so start them inside Tauri's runtime.
             tauri::async_runtime::block_on(async { state.sync.start_all() })?;
+            let mcp = mcp::Mcp::new(state.clone());
             app.manage(state);
+            app.manage(mcp.clone());
+            // Only listens when the user switched it on in the settings.
+            tauri::async_runtime::spawn(async move { mcp.start().await });
             if let Some(window) = app.get_webview_window("main") {
                 titlebar::install(app.handle(), &window);
             }
@@ -131,6 +138,13 @@ pub fn run() {
             commands::get_app_settings,
             commands::set_close_to_tray,
             commands::set_tray_texts,
+            commands::mcp_status,
+            commands::set_mcp_enabled,
+            commands::set_mcp_port,
+            commands::mcp_reveal_key,
+            commands::mcp_rotate_key,
+            commands::mcp_connect_claude,
+            commands::mcp_command_line,
         ])
         .run(tauri::generate_context!())
         .expect("error while running redpanda");
