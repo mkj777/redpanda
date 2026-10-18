@@ -3,7 +3,10 @@ use rusqlite::Connection;
 use crate::error::Result;
 
 /// Ordered list of migrations. The index + 1 is the schema version stored in `user_version`.
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_init.sql"),
+    include_str!("migrations/0002_unsubscribe.sql"),
+];
 
 pub fn apply(conn: &mut Connection) -> Result<()> {
     let current: usize = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? as usize;

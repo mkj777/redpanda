@@ -5,6 +5,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use super::now;
 use crate::error::{AppError, Result};
 use crate::model::*;
+use crate::unsubscribe::{Method, Unsubscribe};
 
 // ---------------------------------------------------------------------------------------------
 // Accounts
@@ -171,10 +172,12 @@ pub struct FolderRow {
     pub uidnext: Option<u32>,
     pub highestmodseq: Option<u64>,
     pub fully_loaded: bool,
+    /// The unsubscribe headers of all stored messages have been read.
+    pub unsub_scanned: bool,
 }
 
 const FOLDER_ROW_COLS: &str =
-    "id, account_id, path, role, hidden, uidvalidity, uidnext, highestmodseq, fully_loaded";
+    "id, account_id, path, role, hidden, uidvalidity, uidnext, highestmodseq, fully_loaded, unsub_scanned";
 
 fn folder_row(r: &Row) -> rusqlite::Result<FolderRow> {
     Ok(FolderRow {
@@ -187,6 +190,7 @@ fn folder_row(r: &Row) -> rusqlite::Result<FolderRow> {
         uidnext: r.get::<_, Option<i64>>(6)?.map(|v| v as u32),
         highestmodseq: r.get::<_, Option<i64>>(7)?.map(|v| v as u64),
         fully_loaded: r.get(8)?,
+        unsub_scanned: r.get(9)?,
     })
 }
 
@@ -362,6 +366,7 @@ pub struct NewMessage {
     pub has_attachments: bool,
     pub preview: String,
     pub size: u32,
+    pub unsubscribe: Option<Unsubscribe>,
 }
 
 fn addresses_text(list: &[Address]) -> String {
@@ -394,8 +399,8 @@ pub fn upsert_message(c: &Connection, m: &NewMessage, collect_recipients: bool) 
     c.execute(
         "INSERT INTO messages (account_id, folder_id, uid, message_id, in_reply_to, refs, thread_key, \
          from_name, from_addr, to_json, cc_json, reply_to_json, subject, date, seen, flagged, answered, \
-         has_attachments, preview, size) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+         has_attachments, preview, size, unsubscribe) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             m.account_id,
             m.folder_id,
@@ -416,7 +421,8 @@ pub fn upsert_message(c: &Connection, m: &NewMessage, collect_recipients: bool) 
             m.answered,
             m.has_attachments,
             m.preview,
-            m.size
+            m.size,
+            m.unsubscribe.as_ref().map(serde_json::to_string).transpose()?
         ],
     )?;
     let id = c.last_insert_rowid();
@@ -659,6 +665,11 @@ pub fn list_messages(
             args.push(q.into());
             "m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1)".to_string()
         }
+        View::Sender { account_id, email } => {
+            args.push(account_id.clone().into());
+            args.push(email.clone().into());
+            format!("m.account_id = ?1 AND m.from_addr = ?2 COLLATE NOCASE AND m.folder_id IN ({VISIBLE_FOLDERS})")
+        }
     };
     let group = if threads { "account_id, thread_key" } else { "id" };
     let n = args.len();
@@ -822,6 +833,136 @@ pub fn get_raw(c: &Connection, message_id: i64) -> Result<Option<Vec<u8>>> {
         |r| r.get(0),
     )
     .optional()?)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Newsletters
+
+/// Stores unsubscribe data read for already synced messages, by UID.
+pub fn set_unsubscribe(c: &Connection, folder_id: i64, found: &[(u32, Unsubscribe)]) -> Result<()> {
+    let mut stmt = c.prepare("UPDATE messages SET unsubscribe = ?3 WHERE folder_id = ?1 AND uid = ?2")?;
+    for (uid, u) in found {
+        stmt.execute(params![folder_id, uid, serde_json::to_string(u)?])?;
+    }
+    Ok(())
+}
+
+pub fn set_unsub_scanned(c: &Connection, folder_id: i64) -> Result<()> {
+    c.execute("UPDATE folders SET unsub_scanned = 1 WHERE id = ?1", [folder_id])?;
+    Ok(())
+}
+
+/// A message's unsubscribe data, and whether its sender was left already.
+pub struct UnsubscribeRow {
+    pub account_id: String,
+    pub sender: String,
+    pub unsubscribe: Unsubscribe,
+    pub folder_role: String,
+    pub unsubscribed_at: Option<i64>,
+}
+
+pub fn unsubscribe_row(c: &Connection, message_id: i64) -> Result<Option<UnsubscribeRow>> {
+    let row = c
+        .query_row(
+            "SELECT m.account_id, m.from_addr, m.unsubscribe, f.role, u.at FROM messages m \
+             JOIN folders f ON f.id = m.folder_id \
+             LEFT JOIN unsubscribed u ON u.account_id = m.account_id AND u.sender = m.from_addr \
+             WHERE m.id = ?1 AND m.unsubscribe IS NOT NULL AND m.from_addr IS NOT NULL",
+            [message_id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<i64>>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(
+        row.and_then(|(account_id, sender, json, folder_role, unsubscribed_at)| {
+            Some(UnsubscribeRow {
+                account_id,
+                sender,
+                unsubscribe: serde_json::from_str(&json).ok()?,
+                folder_role,
+                unsubscribed_at,
+            })
+        }),
+    )
+}
+
+pub fn mark_unsubscribed(c: &Connection, account_id: &str, sender: &str, method: Method) -> Result<()> {
+    c.execute(
+        "INSERT INTO unsubscribed (account_id, sender, method, at) VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT (account_id, sender) DO UPDATE SET method = excluded.method, at = excluded.at",
+        params![account_id, sender, method.as_str(), now()],
+    )?;
+    Ok(())
+}
+
+/// Newsletter senders per account: the ones still subscribed first, the busiest of those on
+/// top. `recent_since` starts the window for [`Subscription::recent`].
+pub fn list_subscriptions(c: &Connection, recent_since: i64) -> Result<Vec<Subscription>> {
+    // Copies of one message in several folders (Gmail labels) count once, as in the list.
+    let sql = format!(
+        "WITH v AS ( \
+           SELECT m.id, m.account_id, m.from_name, m.from_addr, m.date, m.unsubscribe, \
+             ROW_NUMBER() OVER ( \
+               PARTITION BY m.account_id, COALESCE(m.message_id, 'local:' || m.id) ORDER BY m.id) AS dup \
+           FROM messages m \
+           WHERE m.unsubscribe IS NOT NULL AND m.from_addr IS NOT NULL \
+             AND m.folder_id IN ({VISIBLE_FOLDERS} AND role NOT IN ('sent', 'drafts')) \
+         ), s AS ( \
+           SELECT v.*, u.at AS unsubscribed_at, \
+             ROW_NUMBER() OVER (PARTITION BY v.account_id, lower(v.from_addr) ORDER BY v.date DESC, v.id DESC) AS rn, \
+             COUNT(*) OVER (PARTITION BY v.account_id, lower(v.from_addr)) AS total, \
+             SUM(v.date >= ?1) OVER (PARTITION BY v.account_id, lower(v.from_addr)) AS recent, \
+             SUM(u.at IS NOT NULL AND v.date > u.at) OVER (PARTITION BY v.account_id, lower(v.from_addr)) AS since \
+           FROM v LEFT JOIN unsubscribed u ON u.account_id = v.account_id AND u.sender = v.from_addr \
+           WHERE v.dup = 1 \
+         ) \
+         SELECT id, account_id, from_name, from_addr, date, unsubscribe, unsubscribed_at, total, recent, since \
+         FROM s WHERE rn = 1 \
+         ORDER BY unsubscribed_at IS NOT NULL, recent DESC, total DESC, date DESC"
+    );
+    let mut stmt = c.prepare(&sql)?;
+    let rows = stmt.query_map([recent_since], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, i64>(4)?,
+            r.get::<_, String>(5)?,
+            r.get::<_, Option<i64>>(6)?,
+            r.get::<_, i64>(7)?,
+            r.get::<_, i64>(8)?,
+            r.get::<_, i64>(9)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (latest_id, account_id, name, email, last_date, json, at, total, recent, since) = row?;
+        let Some(info) = serde_json::from_str::<Unsubscribe>(&json)
+            .ok()
+            .and_then(|u| u.info(at))
+        else {
+            continue;
+        };
+        out.push(Subscription {
+            account_id,
+            sender: Address { name, email },
+            latest_id,
+            last_date,
+            total,
+            recent,
+            since_unsubscribed: since,
+            unsubscribe: info,
+        });
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1017,7 +1158,22 @@ mod tests {
             has_attachments: false,
             preview: "Quarterly report attached".into(),
             size: 100,
+            unsubscribe: None,
         }
+    }
+
+    fn newsletter(folder: i64, uid: u32, mid: &str, sender: &str, date: i64) -> NewMessage {
+        let mut m = msg("a1", folder, uid, mid, mid, date);
+        m.from = Some(Address {
+            name: Some(sender.split('@').nth(1).unwrap().into()),
+            email: sender.into(),
+        });
+        m.unsubscribe = Some(Unsubscribe {
+            url: Some(format!("https://{}/u", sender.split('@').nth(1).unwrap())),
+            mailto: None,
+            one_click: true,
+        });
+        m
     }
 
     fn setup() -> (Db, i64, i64) {
@@ -1148,6 +1304,114 @@ mod tests {
                 false,
             )?;
             assert!(gone.items.is_empty());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn subscriptions() {
+        let (db, inbox, label) = setup();
+        db.with(|c| {
+            let junk = upsert_folder(
+                c,
+                "a1",
+                &FolderUpsert {
+                    path: "Junk",
+                    name: "Junk",
+                    depth: 0,
+                    role: "junk",
+                    hidden: false,
+                },
+            )?;
+            let day = 86_400;
+            let today = 100 * day;
+            upsert_message(
+                c,
+                &newsletter(inbox, 1, "s1", "news@shop.example", today - 40 * day),
+                false,
+            )?;
+            upsert_message(
+                c,
+                &newsletter(inbox, 2, "s2", "News@Shop.example", today - 2 * day),
+                false,
+            )?;
+            // A Gmail label copy of s2 counts once.
+            upsert_message(
+                c,
+                &newsletter(label, 3, "s2", "news@shop.example", today - 2 * day),
+                false,
+            )?;
+            upsert_message(
+                c,
+                &newsletter(inbox, 4, "c1", "club@verein.example", today - 60 * day),
+                false,
+            )?;
+            upsert_message(c, &newsletter(junk, 5, "j1", "deals@spam.example", today), false)?;
+            upsert_message(c, &msg("a1", inbox, 6, "p1", "p1", today), false)?;
+
+            let subs = list_subscriptions(c, today - 30 * day)?;
+            let senders: Vec<_> = subs.iter().map(|s| s.sender.email.to_lowercase()).collect();
+            assert_eq!(
+                senders,
+                ["news@shop.example", "club@verein.example"],
+                "no spam, no ordinary mail"
+            );
+            assert_eq!((subs[0].total, subs[0].recent), (2, 1));
+            assert_eq!(subs[0].unsubscribe.method, Method::OneClick);
+            assert_eq!(subs[0].unsubscribe.target, "shop.example");
+            let latest = subs[0].latest_id;
+            assert_eq!(get_summary(c, latest)?.date, today - 2 * day);
+
+            // Unsubscribed senders move to the end and count what still arrives.
+            let row = unsubscribe_row(c, latest)?.unwrap();
+            assert_eq!(row.folder_role, "inbox");
+            mark_unsubscribed(c, "a1", &row.sender, Method::OneClick)?;
+            c.execute("UPDATE unsubscribed SET at = ?1", [today - 3 * day])?;
+            let subs = list_subscriptions(c, today - 30 * day)?;
+            assert_eq!(subs[0].sender.email, "club@verein.example");
+            assert_eq!(subs[1].unsubscribe.unsubscribed_at, Some(today - 3 * day));
+            assert_eq!(subs[1].since_unsubscribed, 1);
+            assert!(unsubscribe_row(c, latest)?.unwrap().unsubscribed_at.is_some());
+
+            let mail = list_messages(
+                c,
+                &View::Sender {
+                    account_id: "a1".into(),
+                    email: "NEWS@shop.example".into(),
+                },
+                0,
+                10,
+                false,
+            )?;
+            assert_eq!(mail.items.len(), 2);
+
+            let spam = c.query_row("SELECT id FROM messages WHERE uid = 5", [], |r| {
+                r.get::<_, i64>(0)
+            })?;
+            assert_eq!(unsubscribe_row(c, spam)?.unwrap().folder_role, "junk");
+            let plain = c.query_row("SELECT id FROM messages WHERE uid = 6", [], |r| {
+                r.get::<_, i64>(0)
+            })?;
+            assert!(unsubscribe_row(c, plain)?.is_none());
+
+            // The backfill for messages synced before the column existed.
+            set_unsubscribe(
+                c,
+                inbox,
+                &[(
+                    6,
+                    Unsubscribe {
+                        url: None,
+                        mailto: Some("mailto:x@y.example".into()),
+                        one_click: false,
+                    },
+                )],
+            )?;
+            assert_eq!(
+                unsubscribe_row(c, plain)?.unwrap().unsubscribe.method(),
+                Some(Method::Mail)
+            );
             Ok(())
         })
         .unwrap();

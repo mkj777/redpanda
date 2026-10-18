@@ -20,6 +20,7 @@ use crate::model::*;
 use crate::send::{compose, smtp};
 use crate::store::queries::{self, MessageRef};
 use crate::sync::{imap_conn, Job, SyncManager};
+use crate::unsubscribe::{self, Method as UnsubscribeMethod};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -387,6 +388,12 @@ impl App {
             Some(a) => self.core.db.with(|c| queries::is_remote_allowed(c, &a.email))?,
             None => false,
         };
+        let unsubscribe = self
+            .core
+            .db
+            .with(|c| queries::unsubscribe_row(c, id))?
+            .filter(|row| row.folder_role != "junk")
+            .and_then(|row| row.unsubscribe.info(row.unsubscribed_at));
         Ok(MessageDetail {
             summary,
             cc: extras.cc,
@@ -398,6 +405,7 @@ impl App {
             has_remote_content: body.has_remote,
             remote_allowed,
             attachments: body.attachments,
+            unsubscribe,
         })
     }
 
@@ -681,6 +689,81 @@ impl App {
     }
 
     // -----------------------------------------------------------------------------------------
+    // Newsletters
+
+    pub fn list_subscriptions(&self) -> Result<Vec<Subscription>> {
+        let since = crate::store::now() - 30 * 86_400;
+        self.core.db.with(|c| queries::list_subscriptions(c, since))
+    }
+
+    /// Unsubscribes from the newsletter `message_id` came from, the best way its sender offers.
+    /// With `page` it opens the unsubscribe page instead, the fallback when the other ways fail.
+    pub async fn unsubscribe(
+        &self,
+        message_id: i64,
+        page: bool,
+        open_url: impl FnOnce(&str) -> Result<()>,
+    ) -> Result<UnsubscribeMethod> {
+        let row = self
+            .core
+            .db
+            .with(|c| queries::unsubscribe_row(c, message_id))?
+            .ok_or_else(|| AppError::NotFound("unsubscribe".into()))?;
+        // Answering spam would only confirm the address.
+        if row.folder_role == "junk" {
+            return Err(AppError::Invalid("unsubscribe_junk".into()));
+        }
+        let u = &row.unsubscribe;
+        let method = if page {
+            UnsubscribeMethod::Web
+        } else {
+            u.method()
+                .ok_or_else(|| AppError::NotFound("unsubscribe".into()))?
+        };
+        match method {
+            UnsubscribeMethod::OneClick => {
+                unsubscribe::one_click(u.url.as_deref().unwrap_or_default()).await?
+            }
+            UnsubscribeMethod::Mail => {
+                let mailto = u
+                    .mailto
+                    .as_deref()
+                    .and_then(unsubscribe::parse_mailto)
+                    .ok_or_else(|| AppError::NotFound("unsubscribe".into()))?;
+                let account = self.core.db.with(|c| queries::get_account(c, &row.account_id))?;
+                let draft = Draft {
+                    account_id: account.id.clone(),
+                    to: vec![Address {
+                        name: None,
+                        email: mailto.to,
+                    }],
+                    subject: mailto
+                        .subject
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "Unsubscribe".into()),
+                    body: mailto.body.unwrap_or_else(|| "Unsubscribe".into()),
+                    ..Default::default()
+                };
+                // Sent directly: the list address belongs neither in the contacts nor in Sent.
+                let message = compose::build_message(&account, &draft, vec![])?;
+                smtp::send(&self.core, &account, &message).await?;
+            }
+            UnsubscribeMethod::Web => {
+                let url = u
+                    .url
+                    .as_deref()
+                    .ok_or_else(|| AppError::NotFound("unsubscribe".into()))?;
+                open_url(url)?;
+            }
+        }
+        self.core
+            .db
+            .with(|c| queries::mark_unsubscribed(c, &row.account_id, &row.sender, method))?;
+        self.core.mail_changed(&row.account_id, None);
+        Ok(method)
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Compose
 
     pub async fn send(&self, draft: Draft) -> Result<()> {
@@ -829,6 +912,8 @@ mod tests {
         ));
         let v: View = serde_json::from_str(r#"{"kind":"search","query":"x"}"#).unwrap();
         assert!(matches!(v, View::Search { .. }));
+        let v: View = serde_json::from_str(r#"{"kind":"sender","accountId":"a","email":"n@x.de"}"#).unwrap();
+        assert!(matches!(v, View::Sender { .. }));
 
         let input: NewAccountInput = serde_json::from_str(
             r#"{"email":"a@b.de","displayName":"A","providerId":null,"username":"a@b.de",
@@ -867,5 +952,30 @@ mod tests {
         assert_eq!(json["authType"], "password");
         assert_eq!(json["imap"]["security"], "tls");
         assert_eq!(json["sentSavedByServer"], false);
+
+        let sub = Subscription {
+            account_id: "a".into(),
+            sender: Address {
+                name: None,
+                email: "n@x.de".into(),
+            },
+            latest_id: 7,
+            last_date: 1,
+            total: 2,
+            recent: 1,
+            since_unsubscribed: 0,
+            unsubscribe: UnsubscribeInfo {
+                method: UnsubscribeMethod::OneClick,
+                target: "x.de".into(),
+                has_page: true,
+                unsubscribed_at: None,
+            },
+        };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json["latestId"], 7);
+        assert_eq!(json["sinceUnsubscribed"], 0);
+        assert_eq!(json["method"], "one_click");
+        assert_eq!(json["hasPage"], true);
+        assert!(json["unsubscribedAt"].is_null());
     }
 }

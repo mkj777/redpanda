@@ -33,11 +33,12 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 |---|---|
 | `accounts` | email, display name, provider, auth type, IMAP/SMTP settings, color |
 | `folders` | path, role, UIDVALIDITY, UIDNEXT, HIGHESTMODSEQ, unread count |
-| `messages` | envelope data, flags, thread key, preview, size |
+| `messages` | envelope data, flags, thread key, preview, size, unsubscribe options |
 | `bodies` | plain text, sanitized HTML, attachment metadata |
 | `messages_fts` | FTS5 index over subject, from, to, preview, body text |
 | `secrets` | encrypted credentials per account |
 | `drafts` | locally autosaved drafts |
+| `unsubscribed` | newsletter senders the user left, per account |
 
 ### `sync/`
 
@@ -46,6 +47,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 - Incremental sync checks UIDVALIDITY, fetches new UIDs, refreshes flags with CONDSTORE `CHANGEDSINCE` when available (otherwise for the newest window), and detects deletions within the window.
 - A dedicated connection IDLEs on INBOX. Other folders are polled every 5 minutes and when opened.
 - Actions (read, star, move, delete, archive) are applied to the DB first, then sent to the server.
+- Folders synced before the unsubscribe column existed read the list headers of their stored messages once (`HEADER.FIELDS`).
 
 ### `mime/`
 
@@ -57,6 +59,10 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 - `compose.rs`: builds the outgoing message (reply headers, quoting, attachments).
 - `smtp.rs`: delivery through lettre with password or XOAUTH2, then IMAP APPEND to Sent unless the provider stores sent mail itself.
 
+### `unsubscribe.rs`
+
+Reads `List-Unsubscribe` and `List-Unsubscribe-Post` during sync and unsubscribes by one-click POST, by mail or through the sender's page, see [ADR 0006](adr/0006-unsubscribe.md).
+
 ### `titlebar.rs`
 
 The window has no native frame (`decorations: false`); the page draws the title bar. Snap layouts need a native child window over the maximize button, see [ADR 0005](adr/0005-custom-title-bar.md).
@@ -65,7 +71,7 @@ The window has no native frame (`decorations: false`); the page draws the title 
 
 - `lib/ipc.ts`: typed wrappers around `invoke` and `listen`.
 - `stores/`: Zustand stores for accounts, folders, messages and UI state.
-- `components/`: TitleBar, Sidebar, MessageList (virtualized), ReadingPane, Composer, AccountWizard, Settings.
+- `components/`: TitleBar, Sidebar, MessageList (virtualized), ReadingPane, Subscriptions (newsletter senders), Unsubscribe (confirmation dialog), Composer, AccountWizard, Settings.
 - `i18n/`: `en.json` and `de.json` with identical keys.
 
 ## HTML safety

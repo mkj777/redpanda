@@ -148,6 +148,21 @@ pub fn allow_remote_content(state: AppState<'_>, sender: String) -> Result<()> {
 }
 
 #[tauri::command]
+pub fn list_subscriptions(state: AppState<'_>) -> Result<Vec<Subscription>> {
+    state.list_subscriptions()
+}
+
+#[tauri::command]
+pub async fn unsubscribe(
+    app: AppHandle,
+    state: AppState<'_>,
+    message_id: i64,
+    page: bool,
+) -> Result<crate::unsubscribe::Method> {
+    state.unsubscribe(message_id, page, opener(&app)).await
+}
+
+#[tauri::command]
 pub fn save_attachment(state: AppState<'_>, message_id: i64, index: u32, path: String) -> Result<()> {
     state.save_attachment(message_id, index, &path)
 }

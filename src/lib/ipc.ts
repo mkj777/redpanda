@@ -104,6 +104,32 @@ export interface MessageDetail extends MessageSummary {
   hasRemoteContent: boolean;
   remoteAllowed: boolean;
   attachments: AttachmentInfo[];
+  /** How to leave the newsletter this came from. Never set in spam. */
+  unsubscribe: UnsubscribeInfo | null;
+}
+
+export type UnsubscribeMethod = "one_click" | "mail" | "web";
+
+export interface UnsubscribeInfo {
+  method: UnsubscribeMethod;
+  /** The mail address or the host of the page, shown before the user confirms. */
+  target: string;
+  /** There is a page to fall back to when one-click or the mail fails. */
+  hasPage: boolean;
+  unsubscribedAt: number | null;
+}
+
+/** A newsletter sender in one account. */
+export interface Subscription extends UnsubscribeInfo {
+  accountId: string;
+  sender: Address;
+  /** The newest message, the one unsubscribing goes through. */
+  latestId: number;
+  lastDate: number;
+  total: number;
+  /** Mails in the last 30 days. */
+  recent: number;
+  sinceUnsubscribed: number;
 }
 
 export interface MessagePage {
@@ -117,7 +143,13 @@ export type View =
   | { kind: "folder"; folderId: number }
   | { kind: "unified"; which: UnifiedView }
   | { kind: "search"; query: string }
-  | { kind: "drafts" };
+  | { kind: "drafts" }
+  | { kind: "subscriptions" };
+
+/** What `list_messages` can list: the message views plus one sender's mail. */
+export type ListView =
+  | Exclude<View, { kind: "drafts" } | { kind: "subscriptions" }>
+  | { kind: "sender"; accountId: string; email: string };
 
 export interface Draft {
   id?: number | null;
@@ -201,7 +233,7 @@ export const api = {
     call<void>("update_account", { accountId, displayName, color }),
   removeAccount: (accountId: string) => call<void>("remove_account", { accountId }),
   listFolders: () => call<FolderList>("list_folders"),
-  listMessages: (view: Exclude<View, { kind: "drafts" }>, offset: number, limit: number, threads: boolean) =>
+  listMessages: (view: ListView, offset: number, limit: number, threads: boolean) =>
     call<MessagePage>("list_messages", { view, offset, limit, threads }),
   openFolder: (folderId: number) => call<void>("open_folder", { folderId }),
   syncNow: (accountId?: string) => call<void>("sync_now", { accountId: accountId ?? null }),
@@ -216,6 +248,9 @@ export const api = {
   archiveMessages: (ids: number[], threads: boolean) => call<void>("archive_messages", { ids, threads }),
   createArchiveFolder: (accountId: string) => call<void>("create_archive_folder", { accountId }),
   allowRemoteContent: (sender: string) => call<void>("allow_remote_content", { sender }),
+  listSubscriptions: () => call<Subscription[]>("list_subscriptions"),
+  /** With `page` the unsubscribe page opens in the browser instead. */
+  unsubscribe: (messageId: number, page = false) => call<UnsubscribeMethod>("unsubscribe", { messageId, page }),
   saveAttachment: (messageId: number, index: number, path: string) =>
     call<void>("save_attachment", { messageId, index, path }),
   openAttachment: (messageId: number, index: number) => call<void>("open_attachment", { messageId, index }),

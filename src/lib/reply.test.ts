@@ -53,6 +53,7 @@ function message(over: Partial<MessageDetail> = {}): MessageDetail {
     hasRemoteContent: false,
     remoteAllowed: false,
     attachments: [],
+    unsubscribe: null,
     ...over,
   };
 }

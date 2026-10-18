@@ -346,3 +346,129 @@ async fn full_cycle() {
     assert!(inbox(&app).is_empty());
     assert_eq!(inbox_f.role, "inbox");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a GreenMail container"]
+async fn newsletters() {
+    let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let user = format!("u{id}@example.com");
+    let list = format!("leave{id}@example.com");
+    // GreenMail creates both users on their first login.
+    let _ = raw_session(&list).await.logout().await;
+    {
+        let mut s = raw_session(&user).await;
+        let raw = [
+            "From: Shop News <news@shop.example>".to_string(),
+            format!("To: {user}"),
+            "Subject: Autumn sale".into(),
+            format!("Message-ID: <sale-{id}@shop.example>"),
+            "Date: Sat, 17 Oct 2026 09:00:00 +0000".into(),
+            format!("List-Unsubscribe: <mailto:{list}?subject=leave%20list>,"),
+            format!(" <https://shop.example/u?id={id}>"),
+            String::new(),
+            "Twenty percent off.".into(),
+        ]
+        .join("\r\n");
+        s.append("INBOX", None, None, raw.as_bytes()).await.unwrap();
+        let _ = s.logout().await;
+    }
+
+    let core = Arc::new(Core::new(
+        Db::open_in_memory().unwrap(),
+        Secrets::from_key(&[9u8; 32]).unwrap(),
+        OAuthConfig::default(),
+        Arc::new(NoEvents),
+    ));
+    let app = App::new(core.clone());
+    let account = app
+        .add_account(
+            NewAccountInput {
+                email: user.clone(),
+                display_name: "Test User".into(),
+                provider_id: None,
+                username: user.clone(),
+                imap: imap_cfg(),
+                smtp: smtp_cfg(),
+                auth: NewAuth::Password {
+                    password: "secret".into(),
+                },
+            },
+            |_| Ok(()),
+        )
+        .await
+        .unwrap()
+        .account;
+
+    let subs = eventually("the newsletter", || {
+        let s = app.list_subscriptions().unwrap();
+        (!s.is_empty()).then_some(s)
+    })
+    .await;
+    assert_eq!(subs[0].sender.email, "news@shop.example");
+    assert_eq!(
+        subs[0].unsubscribe.method,
+        redpanda_lib::unsubscribe::Method::Mail
+    );
+    assert_eq!(subs[0].unsubscribe.target, list);
+
+    // Mail synced before redpanda stored the header gets it with the next sync.
+    core.db
+        .with(|c| {
+            c.execute("UPDATE messages SET unsubscribe = NULL", [])?;
+            c.execute("UPDATE folders SET unsub_scanned = 0", [])?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(app.list_subscriptions().unwrap().is_empty());
+    app.sync_now(None);
+    let subs = eventually("the newsletter after the backfill", || {
+        let s = app.list_subscriptions().unwrap();
+        (!s.is_empty()).then_some(s)
+    })
+    .await;
+    let latest = subs[0].latest_id;
+    let detail = app.get_message(latest).await.unwrap();
+    assert_eq!(detail.unsubscribe.unwrap().target, list);
+
+    // The unsubscribe mail goes to the list address, from the receiving account.
+    let method = app
+        .unsubscribe(latest, false, |_| panic!("no page for a mail"))
+        .await
+        .unwrap();
+    assert_eq!(method, redpanda_lib::unsubscribe::Method::Mail);
+    eventually_async("the unsubscribe mail", || {
+        let list = list.clone();
+        async move { (server_state(&list, "INBOX").await.len() == 1).then_some(()) }
+    })
+    .await;
+    let mut s = raw_session(&list).await;
+    s.select("INBOX").await.unwrap();
+    let fetched = imap_conn::collect(s.fetch("1", "BODY.PEEK[HEADER]").await.unwrap())
+        .await
+        .unwrap();
+    let header = String::from_utf8_lossy(fetched[0].header().unwrap()).into_owned();
+    assert!(header.contains("Subject: leave list"), "{header}");
+    assert!(
+        header
+            .lines()
+            .any(|l| l.starts_with("From:") && l.contains(&user)),
+        "{header}"
+    );
+    let _ = s.logout().await;
+    let subs = app.list_subscriptions().unwrap();
+    assert!(subs[0].unsubscribe.unsubscribed_at.is_some());
+
+    // The page is the fallback and opens in the browser.
+    let mut opened = None;
+    let method = app
+        .unsubscribe(latest, true, |url| {
+            opened = Some(url.to_string());
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(method, redpanda_lib::unsubscribe::Method::Web);
+    assert_eq!(opened, Some(format!("https://shop.example/u?id={id}")));
+
+    app.remove_account(&account.id).unwrap();
+}

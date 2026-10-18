@@ -15,7 +15,7 @@ export function useShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
       const ui = useUi.getState();
-      if (ui.composer || ui.wizardOpen || ui.settingsOpen) return;
+      if (ui.composer || ui.wizardOpen || ui.settingsOpen || ui.unsubscribe) return;
       const mail = useMail.getState();
       const selected = mail.messages.find((m) => m.id === mail.selectedId);
       const handled = (() => {

@@ -7,9 +7,11 @@ import type {
   Draft,
   Folder,
   FolderRole,
+  ListView,
   MessageDetail,
   MessageSummary,
-  View,
+  Subscription,
+  UnsubscribeInfo,
 } from "./ipc";
 
 type Handler = (payload: unknown) => void;
@@ -148,6 +150,56 @@ function add(
     hasRemoteContent: false,
     remoteAllowed: false,
     attachments: [],
+    unsubscribe: null,
+    ...opts,
+  });
+}
+
+/** Newsletter senders and how they can be left. Frischfrei's one-click fails, to show the fallback. */
+const lists: Record<string, { from: Address; info: Omit<UnsubscribeInfo, "unsubscribedAt"> }> = {
+  lumen: {
+    from: addr("Lumen Mode", "news@lumen-mode.example"),
+    info: { method: "one_click", target: "lumen-mode.example", hasPage: true },
+  },
+  frischfrei: {
+    from: addr("Frischfrei Kochbox", "hallo@frischfrei.example"),
+    info: { method: "one_click", target: "frischfrei.example", hasPage: true },
+  },
+  fernweh: {
+    from: addr("Fernweh Reisen", "angebote@fernweh.example"),
+    info: { method: "web", target: "fernweh.example", hasPage: true },
+  },
+  konzerthaus: {
+    from: addr("Konzerthaus am Hafen", "programm@konzerthaus.example"),
+    info: { method: "mail", target: "abmelden@konzerthaus.example", hasPage: false },
+  },
+  buecherhalle: {
+    from: addr("Bücherhalle", "newsletter@buecherhalle.example"),
+    info: { method: "mail", target: "newsletter-ende@buecherhalle.example", hasPage: true },
+  },
+  gewinn: {
+    from: addr("Gewinnspiel Zentrale", "deals@gewinn.example"),
+    info: { method: "one_click", target: "gewinn.example", hasPage: true },
+  },
+};
+
+/** Unsubscribed senders by `accountId:email`, with the time. */
+const unsubscribed = new Map<string, number>([["acc-gmail:programm@konzerthaus.example", now - 20 * day]]);
+const senderKey = (accountId: string, from: Address) => `${accountId}:${from.email.toLowerCase()}`;
+
+function newsletter(
+  accountId: string,
+  list: keyof typeof lists,
+  subject: string,
+  ageSeconds: number,
+  text: string,
+  opts: Partial<MockMessage> = {},
+) {
+  const { from, info } = lists[list];
+  const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto"><h2 style="font-weight:600">${subject}</h2><p>${text}</p><p style="color:#888;font-size:12px">Du bekommst diese E-Mail, weil du den Newsletter abonniert hast.</p></div>`;
+  add(accountId, "inbox", from, subject, ageSeconds, { html }, {
+    seen: ageSeconds > 6 * hour,
+    unsubscribe: { ...info, unsubscribedAt: null },
     ...opts,
   });
 }
@@ -231,7 +283,7 @@ add(
   {
     html: `<div style="font-family:Georgia,serif;max-width:600px;margin:auto"><h1 style="font-weight:normal">Neu im Oktober</h1><p>Lesung mit Autorin Hanne Vik am 23.10., Workshop "Buchbinden für Einsteiger" am 30.10.</p><p><a href="https://example.org/programm">Zum Programm</a></p></div>`,
   },
-  { seen: true },
+  { seen: true, unsubscribe: { ...lists.buecherhalle.info, unsubscribedAt: null } },
 );
 add(
   "acc-work",
@@ -263,6 +315,24 @@ add(
   { seen: true, threadKey: "cph" },
 );
 
+newsletter("acc-gmail", "lumen", "Neue Herbstkollektion ist da", 3 * hour, "Warme Farben, weiche Stoffe: entdecke jetzt die neuen Teile.");
+newsletter("acc-gmail", "lumen", "Nur heute: 20 Prozent auf Jacken", 3 * day, "Mit dem Code HERBST20 sparst du bis Mitternacht.");
+newsletter("acc-gmail", "lumen", "Deine Wunschliste vermisst dich", 9 * day, "Drei Artikel auf deiner Wunschliste sind wieder da.");
+newsletter("acc-gmail", "lumen", "Wintermäntel im Sale", 18 * day, "Die Mäntel der letzten Saison, jetzt reduziert.");
+newsletter("acc-gmail", "lumen", "Styling-Tipps für den Herbst", 26 * day, "So kombinierst du Strick und Leder.");
+newsletter("acc-gmail", "lumen", "Sommer-Sale: letzte Chance", 45 * day, "Nur noch wenige Größen verfügbar.");
+newsletter("acc-gmail", "frischfrei", "Dein Menü für nächste Woche", 1 * day, "Kürbis-Risotto, Linsen-Curry und Ofengemüse stehen bereit.");
+newsletter("acc-gmail", "frischfrei", "Dein Menü für nächste Woche", 8 * day, "Diese Woche neu: vegane Lasagne.");
+newsletter("acc-gmail", "frischfrei", "Dein Menü für nächste Woche", 15 * day, "Mit Rezept für Apfel-Crumble.");
+newsletter("acc-gmx", "fernweh", "Last Minute nach Lissabon", 4 * day, "Flug und Hotel ab 289 Euro.");
+newsletter("acc-gmx", "fernweh", "Herbstferien am Meer", 33 * day, "Die schönsten Ferienhäuser an der Ostsee.");
+newsletter("acc-gmail", "konzerthaus", "Programm im November", 5 * day, "Jazz am Sonntag, Kammermusik am Donnerstag.");
+newsletter("acc-gmail", "konzerthaus", "Saisonstart: Karten sichern", 30 * day, "Der Vorverkauf für die neue Saison läuft.");
+newsletter("acc-gmail", "buecherhalle", "Sommerleseclub: die Gewinner", 35 * day, "Danke an alle, die mitgelesen haben.");
+newsletter("acc-gmail", "gewinn", "Sie haben gewonnen!", 2 * hour, "Bestätigen Sie jetzt Ihren Gewinn.", {
+  folderId: folderOf("acc-gmail", "junk").id,
+});
+
 function recount() {
   for (const f of folders) {
     const live = messages.filter((m) => !m.deleted && m.folderId === f.id);
@@ -276,9 +346,21 @@ let drafts: Draft[] = [];
 let draftSeq = 1;
 
 function summary(m: MockMessage): MessageSummary {
-  const { cc, replyTo, messageId, references, text, html, hasRemoteContent, remoteAllowed, attachments, deleted, ...s } =
-    m;
-  void [cc, replyTo, messageId, references, text, html, hasRemoteContent, remoteAllowed, attachments, deleted];
+  const {
+    cc,
+    replyTo,
+    messageId,
+    references,
+    text,
+    html,
+    hasRemoteContent,
+    remoteAllowed,
+    attachments,
+    unsubscribe,
+    deleted,
+    ...s
+  } = m;
+  void [cc, replyTo, messageId, references, text, html, hasRemoteContent, remoteAllowed, attachments, unsubscribe, deleted];
   return s;
 }
 
@@ -287,9 +369,15 @@ function visible(m: MockMessage) {
   return !m.deleted && !["trash", "junk"].includes(f.role);
 }
 
-function listFor(view: Exclude<View, { kind: "drafts" }>) {
+const roleOf = (m: MockMessage) => folders.find((f) => f.id === m.folderId)!.role;
+
+function listFor(view: ListView) {
   let items = messages.filter((m) => !m.deleted);
   if (view.kind === "folder") items = items.filter((m) => m.folderId === view.folderId);
+  else if (view.kind === "sender")
+    items = items.filter(
+      (m) => visible(m) && m.accountId === view.accountId && m.from?.email.toLowerCase() === view.email.toLowerCase(),
+    );
   else if (view.kind === "unified") {
     if (view.which === "inbox") items = items.filter((m) => folders.find((f) => f.id === m.folderId)!.role === "inbox");
     if (view.which === "unread") items = items.filter((m) => !m.seen && visible(m));
@@ -306,6 +394,38 @@ function listFor(view: Exclude<View, { kind: "drafts" }>) {
 }
 
 const delay = (ms = 120) => new Promise((r) => setTimeout(r, ms));
+
+function subscriptions(): Subscription[] {
+  const groups = new Map<string, MockMessage[]>();
+  for (const m of messages) {
+    if (!m.unsubscribe || !m.from || !visible(m) || ["sent", "drafts"].includes(roleOf(m))) continue;
+    const key = senderKey(m.accountId, m.from);
+    groups.set(key, [...(groups.get(key) ?? []), m]);
+  }
+  return [...groups.entries()]
+    .map(([key, list]) => {
+      const [latest] = list.sort((a, b) => b.date - a.date);
+      const at = unsubscribed.get(key) ?? null;
+      return {
+        ...latest.unsubscribe!,
+        accountId: latest.accountId,
+        sender: latest.from!,
+        latestId: latest.id,
+        lastDate: latest.date,
+        total: list.length,
+        recent: list.filter((m) => m.date >= now - 30 * day).length,
+        sinceUnsubscribed: at == null ? 0 : list.filter((m) => m.date > at).length,
+        unsubscribedAt: at,
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(a.unsubscribedAt != null) - Number(b.unsubscribedAt != null) ||
+        b.recent - a.recent ||
+        b.total - a.total ||
+        b.lastDate - a.lastDate,
+    );
+}
 
 function changed(accountId: string, folderId: number | null = null) {
   recount();
@@ -449,7 +569,7 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       };
     }
     case "list_messages": {
-      const { view, offset, limit } = args as { view: Exclude<View, { kind: "drafts" }>; offset: number; limit: number };
+      const { view, offset, limit } = args as { view: ListView; offset: number; limit: number };
       const all = listFor(view);
       return { items: all.slice(offset, offset + limit).map(summary), hasMore: offset + limit < all.length };
     }
@@ -463,7 +583,11 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       await delay(150);
       const m = messages.find((x) => x.id === args.id);
       if (!m) throw { code: "not_found", message: "not found" };
-      return structuredClone(m);
+      const unsubscribe =
+        m.unsubscribe && m.from && roleOf(m) !== "junk"
+          ? { ...m.unsubscribe, unsubscribedAt: unsubscribed.get(senderKey(m.accountId, m.from)) ?? null }
+          : null;
+      return { ...structuredClone(m), unsubscribe };
     }
     case "get_thread": {
       const m = messages.find((x) => x.id === args.id)!;
@@ -508,6 +632,19 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       addFolder(String(args.accountId), "Archive", "Archive", "archive");
       changed(String(args.accountId));
       return null;
+    case "list_subscriptions":
+      return structuredClone(subscriptions());
+    case "unsubscribe": {
+      await delay(700);
+      const m = messages.find((x) => x.id === args.messageId);
+      if (!m?.unsubscribe || !m.from) throw { code: "not_found", message: "not found" };
+      const method = args.page ? "web" : m.unsubscribe.method;
+      if (method === "one_click" && m.from.email.endsWith("@frischfrei.example"))
+        throw { code: "network", message: "the unsubscribe request failed with HTTP 503" };
+      unsubscribed.set(senderKey(m.accountId, m.from), Math.floor(Date.now() / 1000));
+      changed(m.accountId);
+      return method;
+    }
     case "allow_remote_content":
     case "save_attachment":
     case "open_attachment":

@@ -5,6 +5,7 @@ use mail_parser::{HeaderValue, Message, MessageParser, MimeHeaders, PartType};
 
 use super::sanitize::sanitize_html;
 use crate::model::{Address, AttachmentInfo};
+use crate::unsubscribe::{self, Unsubscribe};
 
 /// Header data of a message, parsed from `BODY[HEADER]` plus the first bytes of `BODY[TEXT]`.
 #[derive(Debug, Clone, Default)]
@@ -20,6 +21,7 @@ pub struct ParsedHeader {
     pub date: Option<i64>,
     pub preview: String,
     pub has_attachments: bool,
+    pub unsubscribe: Option<Unsubscribe>,
 }
 
 const PREVIEW_CHARS: usize = 200;
@@ -52,6 +54,7 @@ pub fn parse_header(header: &[u8], partial_text: Option<&[u8]>) -> ParsedHeader 
         date: msg.date().map(|d| d.to_timestamp()),
         preview,
         has_attachments: has_attachments(&msg),
+        unsubscribe: unsubscribe::from_header(header),
     }
 }
 

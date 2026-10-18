@@ -5,6 +5,7 @@ import {
   type Draft,
   type Folder,
   type MessageSummary,
+  type Subscription,
   type SyncState,
   type UnifiedCounts,
   type View,
@@ -28,6 +29,10 @@ interface MailState {
   loading: boolean;
   loadingOlder: boolean;
   selectedId: number | null;
+  /** Newsletter senders, in the subscriptions view. */
+  subscriptions: Subscription[];
+  /** The selected sender there, see `subscriptionKey`. */
+  selectedSub: string | null;
   /** Bumped on every refresh so open readers can refetch. */
   revision: number;
 
@@ -40,6 +45,7 @@ interface MailState {
   search: (query: string) => void;
   loadMore: () => Promise<void>;
   select: (id: number | null) => void;
+  selectSub: (key: string | null) => void;
   selectRelative: (delta: number) => void;
   /** Removes rows from the list right away and moves the selection on. */
   dropFromList: (ids: number[]) => void;
@@ -52,6 +58,10 @@ function sameView(a: View, b: View) {
 }
 
 let listToken = 0;
+
+export function subscriptionKey(s: Pick<Subscription, "accountId" | "sender">) {
+  return `${s.accountId}:${s.sender.email.toLowerCase()}`;
+}
 
 export const useMail = create<MailState>()((set, get) => ({
   accounts: [],
@@ -66,6 +76,8 @@ export const useMail = create<MailState>()((set, get) => ({
   loading: false,
   loadingOlder: false,
   selectedId: null,
+  subscriptions: [],
+  selectedSub: null,
   revision: 0,
 
   refreshAccounts: async () => {
@@ -83,6 +95,18 @@ export const useMail = create<MailState>()((set, get) => ({
     if (view.kind === "drafts") {
       const drafts = await api.listDrafts();
       if (token === listToken) set({ drafts, loading: false });
+      return;
+    }
+    if (view.kind === "subscriptions") {
+      const subscriptions = await api.listSubscriptions();
+      if (token !== listToken) return;
+      const { selectedSub } = get();
+      set((s) => ({
+        subscriptions,
+        loading: false,
+        selectedSub: subscriptions.some((x) => subscriptionKey(x) === selectedSub) ? selectedSub : null,
+        revision: s.revision + 1,
+      }));
       return;
     }
     const threads = useSettings.getState().threads && view.kind !== "search";
@@ -126,6 +150,7 @@ export const useMail = create<MailState>()((set, get) => ({
       serverHasOlder: true,
       loading: true,
       selectedId: null,
+      selectedSub: null,
     });
     if (view.kind === "folder") void api.openFolder(view.folderId);
     // Views over one folder role refresh those folders in every account.
@@ -146,7 +171,7 @@ export const useMail = create<MailState>()((set, get) => ({
 
   loadMore: async () => {
     const { view, messages, hasMore, loadingOlder, serverHasOlder } = get();
-    if (view.kind === "drafts" || loadingOlder) return;
+    if (view.kind === "drafts" || view.kind === "subscriptions" || loadingOlder) return;
     if (hasMore) {
       const threads = useSettings.getState().threads && view.kind !== "search";
       const page = await api.listMessages(view, messages.length, PAGE, threads);
@@ -167,6 +192,8 @@ export const useMail = create<MailState>()((set, get) => ({
   },
 
   select: (selectedId) => set({ selectedId }),
+
+  selectSub: (selectedSub) => set({ selectedSub }),
 
   selectRelative: (delta) => {
     const { messages, selectedId } = get();

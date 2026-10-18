@@ -8,6 +8,7 @@ import { archive, remove, toggleSeen } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
 import { useUi } from "@/stores/ui";
 import { folderLabel } from "./Sidebar";
+import { SubscriptionList } from "./Subscriptions";
 import { IconButton, Spinner } from "./ui";
 
 const ROW = 76;
@@ -23,12 +24,17 @@ const UNIFIED_TITLES: Record<UnifiedView, string> = {
 
 function useViewTitle() {
   const { t } = useTranslation();
-  const { view, folders, accounts } = useMail();
+  const { view, folders, accounts, subscriptions } = useMail();
   switch (view.kind) {
     case "unified":
       return { title: t(UNIFIED_TITLES[view.which]), sub: null };
     case "drafts":
       return { title: t("nav.drafts"), sub: null };
+    case "subscriptions":
+      return {
+        title: t("nav.subscriptions"),
+        sub: subscriptions.length ? t("subs.count", { count: subscriptions.length }) : null,
+      };
     case "search":
       return { title: t("list.results"), sub: null };
     case "folder": {
@@ -229,7 +235,9 @@ export function MessageList() {
         </IconButton>
       </div>
 
-      {view.kind === "drafts" ? (
+      {view.kind === "subscriptions" ? (
+        <SubscriptionList />
+      ) : view.kind === "drafts" ? (
         <DraftList />
       ) : loading && !messages.length ? (
         <div className="flex flex-1 items-center justify-center">

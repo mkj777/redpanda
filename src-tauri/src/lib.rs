@@ -9,6 +9,7 @@ pub mod service;
 pub mod store;
 pub mod sync;
 mod titlebar;
+pub mod unsubscribe;
 
 use std::sync::Arc;
 
@@ -98,6 +99,8 @@ pub fn run() {
             commands::archive_messages,
             commands::create_archive_folder,
             commands::allow_remote_content,
+            commands::list_subscriptions,
+            commands::unsubscribe,
             commands::save_attachment,
             commands::open_attachment,
             commands::send_message,

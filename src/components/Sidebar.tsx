@@ -8,6 +8,7 @@ import {
   Folder as FolderIcon,
   Inbox,
   Mail,
+  Newspaper,
   OctagonAlert,
   PenSquare,
   Plus,
@@ -146,6 +147,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
     { view: { kind: "unified", which: "sent" }, icon: Send, label: t("nav.allSent"), count: 0 },
     { view: { kind: "unified", which: "junk" }, icon: OctagonAlert, label: t("nav.allJunk"), count: 0 },
     { view: { kind: "unified", which: "trash" }, icon: Trash2, label: t("nav.allTrash"), count: 0 },
+    { view: { kind: "subscriptions" }, icon: Newspaper, label: t("nav.subscriptions"), count: 0 },
   ];
 
   return (

@@ -3565,6 +3565,7 @@ dependencies = [
  "lettre",
  "mail-parser",
  "mime_guess",
+ "percent-encoding",
  "quick-xml 0.37.5",
  "rand 0.8.8",
  "reqwest 0.12.28",

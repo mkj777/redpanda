@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::unsubscribe::Method as UnsubscribeMethod;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Security {
@@ -152,6 +154,38 @@ pub struct MessageDetail {
     pub has_remote_content: bool,
     pub remote_allowed: bool,
     pub attachments: Vec<AttachmentInfo>,
+    /// How to leave the newsletter this message came from. Never set in the spam folder, where
+    /// unsubscribing would only confirm the address to the sender.
+    pub unsubscribe: Option<UnsubscribeInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsubscribeInfo {
+    pub method: UnsubscribeMethod,
+    /// The mail address or the host of the page, shown before the user confirms.
+    pub target: String,
+    /// There is an unsubscribe page to fall back to when one-click or the mail fails.
+    pub has_page: bool,
+    pub unsubscribed_at: Option<i64>,
+}
+
+/// A newsletter sender in one account, for managing subscriptions.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Subscription {
+    pub account_id: String,
+    pub sender: Address,
+    /// The newest message, the one unsubscribing goes through.
+    pub latest_id: i64,
+    pub last_date: i64,
+    pub total: i64,
+    /// Mails in the last 30 days.
+    pub recent: i64,
+    /// Mails that arrived after unsubscribing.
+    pub since_unsubscribed: i64,
+    #[serde(flatten)]
+    pub unsubscribe: UnsubscribeInfo,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +208,12 @@ pub enum View {
     },
     Search {
         query: String,
+    },
+    /// Mail from one sender in one account, for the subscriptions view.
+    Sender {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        email: String,
     },
 }
 

@@ -24,7 +24,8 @@
     "allJunk": "Spam",
     "allTrash": "Trash",
     "addAccount": "Add account",
-    "settings": "Settings"
+    "settings": "Settings",
+    "subscriptions": "Subscriptions"
   },
   "folder": {
     "inbox": "Inbox",
@@ -93,6 +94,43 @@
     "open": "Open",
     "save": "Save as",
     "blockedType": "This file type can only be saved, not opened directly."
+  },
+  "subs": {
+    "count_one": "{{count}} sender",
+    "count_other": "{{count}} senders",
+    "empty": "No newsletters found yet. redpanda recognizes them by the unsubscribe header they carry.",
+    "select": "Select a sender",
+    "total_one": "{{count}} email",
+    "total_other": "{{count}} emails",
+    "recent_one": "{{count}} in the last month",
+    "recent_other": "{{count}} in the last month",
+    "lastOn": "last on {{date}}",
+    "unsubscribed": "Unsubscribed",
+    "unsubscribedOn": "Unsubscribed on {{date}}",
+    "stillComing_one": "{{count}} more email arrived since. Some senders take a few days.",
+    "stillComing_other": "{{count}} more emails arrived since. Some senders take a few days.",
+    "again": "Unsubscribe again",
+    "mails": "Emails from this sender",
+    "via": {
+      "one_click": "One-click unsubscribe through {{target}}",
+      "mail": "Unsubscribes by email to {{target}}",
+      "web": "Unsubscribes on the page of {{target}}"
+    }
+  },
+  "unsub": {
+    "button": "Unsubscribe",
+    "done": "Unsubscribed",
+    "title": "Unsubscribe",
+    "how": {
+      "one_click": "redpanda asks {{target}} directly to stop sending these emails. There is nothing else to do.",
+      "mail": "redpanda sends an email from {{account}} to {{target}} to unsubscribe you.",
+      "web": "The unsubscribe page of {{target}} opens in your browser. You finish there."
+    },
+    "confirm": "Unsubscribe",
+    "openPage": "Open page",
+    "doneToast": "Unsubscribed from {{sender}}",
+    "pageOpened": "Unsubscribe page opened in your browser",
+    "failed": "Could not unsubscribe from {{sender}}."
   },
   "compose": {
     "title": "New message",

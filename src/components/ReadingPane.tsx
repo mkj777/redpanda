@@ -18,13 +18,14 @@ import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { api, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
-import { cn, displayName, fileSize, fullDate, initials } from "@/lib/format";
+import { cn, displayName, fileSize, fullDate } from "@/lib/format";
 import { archive, markSeen, moveTo, remove, reply, reportError, toggleFlagged, toggleSeen } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { HtmlBody, TextBody } from "./MessageBody";
 import { folderLabel } from "./Sidebar";
-import { Button, IconButton, Spinner } from "./ui";
+import { Avatar, Button, IconButton, Spinner } from "./ui";
+import { UnsubscribeLink } from "./Unsubscribe";
 
 function Attachments({ msg }: { msg: MessageDetail }) {
   const { t, i18n } = useTranslation();
@@ -95,7 +96,16 @@ function RemoteBar({ msg, onAllow }: { msg: MessageDetail; onAllow: () => void }
   );
 }
 
-function MessageView({ summary, isLast }: { summary: MessageSummary; isLast: boolean }) {
+export function MessageView({
+  summary,
+  isLast,
+  unsubscribeLink = true,
+}: {
+  summary: MessageSummary;
+  isLast: boolean;
+  /** Off where the page around it offers unsubscribing already. */
+  unsubscribeLink?: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const revision = useMail((s) => s.revision);
   const ownEmails = useMail(useShallow((s) => s.accounts.map((a) => a.email.toLowerCase())));
@@ -140,13 +150,12 @@ function MessageView({ summary, isLast }: { summary: MessageSummary; isLast: boo
   return (
     <article className="py-4">
       <header className="mb-4 flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-semibold text-muted">
-          {initials(msg.from)}
-        </div>
+        <Avatar address={msg.from} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold">{displayName(msg.from) || t("list.unknownSender")}</span>
             {msg.from?.name && <span className="selectable truncate text-xs text-muted">{msg.from.email}</span>}
+            {unsubscribeLink && <UnsubscribeLink msg={msg} />}
           </div>
           <div className="truncate text-xs text-muted" title={[...msg.to, ...msg.cc].map((a) => a.email).join(", ")}>
             {t("reader.to", { list: recipients || t("list.noRecipient") })}

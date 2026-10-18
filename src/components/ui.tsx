@@ -2,7 +2,8 @@ import * as RadixDialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { X } from "lucide-react";
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
-import { cn } from "@/lib/format";
+import { cn, initials } from "@/lib/format";
+import type { Address } from "@/lib/ipc";
 
 type Variant = "primary" | "soft" | "secondary" | "ghost" | "danger";
 
@@ -149,6 +150,20 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
         />
       </button>
     </label>
+  );
+}
+
+export function Avatar({ address, className }: { address: Address | null; className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-xs font-semibold text-muted",
+        className,
+      )}
+    >
+      {initials(address)}
+    </div>
   );
 }
 

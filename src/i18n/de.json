@@ -24,7 +24,8 @@
     "allJunk": "Spam",
     "allTrash": "Papierkorb",
     "addAccount": "Konto hinzufügen",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "subscriptions": "Abos"
   },
   "folder": {
     "inbox": "Posteingang",
@@ -93,6 +94,43 @@
     "open": "Öffnen",
     "save": "Speichern unter",
     "blockedType": "Dieser Dateityp kann nur gespeichert, nicht direkt geöffnet werden."
+  },
+  "subs": {
+    "count_one": "{{count}} Absender",
+    "count_other": "{{count}} Absender",
+    "empty": "Noch keine Newsletter gefunden. redpanda erkennt sie an der Abmelde-Angabe in ihrem Header.",
+    "select": "Wähle einen Absender aus",
+    "total_one": "{{count}} E-Mail",
+    "total_other": "{{count}} E-Mails",
+    "recent_one": "{{count}} im letzten Monat",
+    "recent_other": "{{count}} im letzten Monat",
+    "lastOn": "zuletzt am {{date}}",
+    "unsubscribed": "Abbestellt",
+    "unsubscribedOn": "Abbestellt am {{date}}",
+    "stillComing_one": "Seitdem kam noch {{count}} E-Mail. Manche Absender brauchen ein paar Tage.",
+    "stillComing_other": "Seitdem kamen noch {{count}} E-Mails. Manche Absender brauchen ein paar Tage.",
+    "again": "Nochmal abbestellen",
+    "mails": "E-Mails von diesem Absender",
+    "via": {
+      "one_click": "Abmeldung mit einem Klick über {{target}}",
+      "mail": "Abmeldung per E-Mail an {{target}}",
+      "web": "Abmeldung auf der Seite von {{target}}"
+    }
+  },
+  "unsub": {
+    "button": "Abbestellen",
+    "done": "Abbestellt",
+    "title": "Newsletter abbestellen",
+    "how": {
+      "one_click": "redpanda bittet {{target}} direkt, dir diese E-Mails nicht mehr zu schicken. Mehr musst du nicht tun.",
+      "mail": "redpanda schickt dazu von {{account}} eine E-Mail an {{target}}.",
+      "web": "Die Abmeldeseite von {{target}} öffnet sich im Browser. Dort schließt du die Abmeldung ab."
+    },
+    "confirm": "Abbestellen",
+    "openPage": "Seite öffnen",
+    "doneToast": "{{sender}} abbestellt",
+    "pageOpened": "Abmeldeseite im Browser geöffnet",
+    "failed": "Abbestellen bei {{sender}} hat nicht geklappt."
   },
   "compose": {
     "title": "Neue Nachricht",

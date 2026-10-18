@@ -12,11 +12,14 @@ use crate::error::{AppError, Result};
 use crate::mime::parse::{parse_body, parse_header, thread_key};
 use crate::model::Account;
 use crate::store::queries::{self, BodyRow, FolderRow, FolderSyncState, NewMessage};
+use crate::unsubscribe;
 
 /// Messages fetched per folder on first sync.
 pub const INITIAL_WINDOW: u32 = 500;
 /// Messages fetched per "load older" request.
 pub const OLDER_BATCH: usize = 200;
+/// Messages per request when reading the unsubscribe headers of already synced mail.
+const UNSUBSCRIBE_BATCH: usize = 500;
 
 const HEADER_QUERY: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.3072>)";
 /// Fallback for servers whose partial FETCH responses do not parse (GreenMail, some appliances).
@@ -258,6 +261,9 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
             },
         )
     })?;
+    if !folder.unsub_scanned {
+        changed |= backfill_unsubscribe(conn, folder).await?;
+    }
     if changed {
         core.mail_changed(&account.id, Some(folder.id));
     }
@@ -341,6 +347,7 @@ fn store_fetches(
                 has_attachments: h.has_attachments,
                 preview: h.preview,
                 size: f.size.unwrap_or(0),
+                unsubscribe: h.unsubscribe,
             };
             if queries::upsert_message(&tx, &m, is_sent)? {
                 inserted += 1;
@@ -349,6 +356,51 @@ fn store_fetches(
         tx.commit()?;
         Ok(inserted)
     })
+}
+
+/// Reads the unsubscribe headers of messages synced before they were stored, once per folder.
+/// Returns `true` if a newsletter turned up. Runs at the end of a folder sync, with the folder
+/// still selected.
+async fn backfill_unsubscribe(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
+    let core = conn.core.clone();
+    let uids = core
+        .db
+        .with(|c| queries::uids_in_range(c, folder.id, 0, u32::MAX))?;
+    let mut found = false;
+    for chunk in uids.chunks(UNSUBSCRIBE_BATCH) {
+        let session = conn.session.as_mut().expect("selected");
+        let res = match session.uid_fetch(uid_set(chunk), unsubscribe::FETCH_QUERY).await {
+            Ok(stream) => collect(stream).await,
+            Err(e) => Err(e.into()),
+        };
+        let fetches = match res {
+            Ok(f) => f,
+            Err(e @ AppError::Network(_)) => return Err(e),
+            Err(e) => {
+                // A server that cannot answer this must not hold up the sync, the messages just
+                // stay without unsubscribe data.
+                tracing::warn!(folder = %folder.path, "reading unsubscribe headers failed: {e}");
+                conn.reset();
+                break;
+            }
+        };
+        let news: Vec<_> = fetches
+            .iter()
+            .filter_map(|f| Some((f.uid?, unsubscribe::from_header(f.header()?)?)))
+            .collect();
+        found |= !news.is_empty();
+        core.db.with(|c| {
+            let tx = c.transaction()?;
+            queries::set_unsubscribe(&tx, folder.id, &news)?;
+            tx.commit()?;
+            Ok(())
+        })?;
+    }
+    if let Some(session) = conn.session.as_mut() {
+        imap_conn::drain_unsolicited(session);
+    }
+    core.db.with(|c| queries::set_unsub_scanned(c, folder.id))?;
+    Ok(found)
 }
 
 /// Fetches the next batch of older messages. Returns `true` if more remain on the server.

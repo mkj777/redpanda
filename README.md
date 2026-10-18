@@ -16,6 +16,7 @@ A minimal desktop mail client for Windows. Gmail, Outlook/Microsoft 365 and any 
 - **Push**: IMAP IDLE on the inbox, other folders are checked every few minutes
 - **Privacy**: mail HTML is sanitized in Rust and shown in a sandboxed frame without scripts; remote images stay blocked until you allow them, per message or per sender
 - **Writing**: plain-text messages, reply, reply all, forward (with the original attachments), attachments, address autocomplete, drafts saved locally while you type
+- **Newsletters**: "Unsubscribe" next to the sender like in Gmail, with one click where the sender supports it and otherwise by email or on its page, plus a view of every newsletter sender and how often it writes
 - **Search** over everything that has been synced, instantly (SQLite FTS5)
 - **Keyboard**: `j`/`k` to move, `c` compose, `r`/`a`/`f` reply, reply all, forward, `e` archive, `#` delete, `s` star, `u` read/unread, `/` search
 - English and German, light and dark theme following Windows
@@ -53,7 +54,7 @@ If you build redpanda yourself, the IDs are not included. Register your own clie
 
 ## Privacy
 
-- Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings.
+- Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings. When you unsubscribe from a newsletter, it also contacts that sender's unsubscribe address.
 - Mail is cached in a local SQLite database in `%LOCALAPPDATA%\redpanda`.
 - Passwords and tokens are encrypted (ChaCha20-Poly1305) with a key kept in the Windows Credential Manager. They never reach the user interface or log files. See [ADR 0002](docs/adr/0002-secrets-encrypted-in-sqlite.md).
 - No telemetry.

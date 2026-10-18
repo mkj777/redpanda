@@ -16,9 +16,11 @@ import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
+import { SubscriptionPane } from "./components/Subscriptions";
 import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
 import { Button } from "./components/ui";
+import { UnsubscribeDialog } from "./components/Unsubscribe";
 
 const RAIL_PX = 52;
 
@@ -101,6 +103,7 @@ export default function App() {
   useShortcuts();
   const ready = useBackendEvents();
   const hasAccounts = useMail((s) => s.accounts.length > 0);
+  const subscriptions = useMail((s) => s.view.kind === "subscriptions");
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(window.innerWidth);
 
@@ -141,7 +144,7 @@ export default function App() {
               </Panel>
               <ResizeHandle />
               <Panel id="reader" order={3} defaultSize={52} minSize={28}>
-                <ReadingPane />
+                {subscriptions ? <SubscriptionPane /> : <ReadingPane />}
               </Panel>
             </PanelGroup>
           ) : (
@@ -152,6 +155,7 @@ export default function App() {
       <Composer />
       <AccountWizard />
       <SettingsDialog />
+      <UnsubscribeDialog />
       <Toasts />
     </Tooltip.Provider>
   );

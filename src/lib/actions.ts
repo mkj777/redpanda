@@ -3,10 +3,10 @@
 import i18n from "@/i18n";
 import { api, toAppError, type AppError, type MessageDetail, type MessageSummary } from "./ipc";
 import { buildReply, type ReplyMode } from "./reply";
-import { fullDate } from "./format";
+import { displayName, fullDate } from "./format";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
-import { useUi } from "@/stores/ui";
+import { useUi, type UnsubscribeRequest } from "@/stores/ui";
 
 export function errorText(e: unknown): string {
   const err: AppError = toAppError(e);
@@ -113,6 +113,23 @@ export async function moveTo(msgs: MessageSummary[], folderId: number) {
     useMail.getState().dropFromList(ids);
   } catch (e) {
     reportError(e);
+  }
+}
+
+/** Leaves a newsletter once the user confirmed. When one-click or the mail fails, the toast
+ * offers the unsubscribe page instead. */
+export async function unsubscribe(req: UnsubscribeRequest, page = false) {
+  const sender = displayName(req.sender);
+  try {
+    const method = await api.unsubscribe(req.messageId, page);
+    useUi.getState().toast(method === "web" ? i18n.t("unsub.pageOpened") : i18n.t("unsub.doneToast", { sender }));
+  } catch (e) {
+    if (!page && req.info.hasPage && req.info.method !== "web") {
+      useUi.getState().toast(i18n.t("unsub.failed", { sender }), "error", {
+        label: i18n.t("unsub.openPage"),
+        run: () => void unsubscribe(req, true),
+      });
+    } else reportError(e);
   }
 }
 

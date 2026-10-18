@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageSummary } from "@/lib/ipc";
-import { useMail } from "./mail";
+import { subscriptionKey, useMail } from "./mail";
 
 const msg = (id: number): MessageSummary => ({
   id,
@@ -44,5 +44,24 @@ describe("mail store", () => {
     expect(useMail.getState().selectedId).toBe(4);
     s.selectRelative(-10);
     expect(useMail.getState().selectedId).toBe(1);
+  });
+});
+
+describe("subscriptions view", () => {
+  it("lists senders, keeps the selection across refreshes and drops it on another view", async () => {
+    useMail.setState({ view: { kind: "unified", which: "inbox" }, messages: [], selectedId: null, selectedSub: null });
+    useMail.getState().setView({ kind: "subscriptions" });
+    await vi.waitFor(() => expect(useMail.getState().subscriptions.length).toBeGreaterThan(0), { timeout: 3000 });
+    const subs = useMail.getState().subscriptions;
+    expect(subs[subs.length - 1].unsubscribedAt).not.toBeNull();
+    expect(subs.some((s) => s.sender.email === "deals@gewinn.example")).toBe(false);
+
+    const key = subscriptionKey(subs[0]);
+    useMail.getState().selectSub(key);
+    await useMail.getState().refreshList();
+    expect(useMail.getState().selectedSub).toBe(key);
+
+    useMail.getState().setView({ kind: "unified", which: "inbox" });
+    expect(useMail.getState().selectedSub).toBeNull();
   });
 });
