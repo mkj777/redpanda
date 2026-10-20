@@ -84,7 +84,6 @@
   "reader": {
     "empty": "Keine Nachricht ausgewählt",
     "loading": "Nachricht wird geladen",
-    "me": "mich",
     "to": "an {{list}}",
     "remoteBlocked": "Externe Bilder sind zum Schutz deiner Privatsphäre blockiert.",
     "loadImages": "Bilder laden",

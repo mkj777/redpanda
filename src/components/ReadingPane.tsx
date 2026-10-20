@@ -20,7 +20,6 @@ import { useTranslation } from "react-i18next";
 import { api, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
 import { cn, displayName, fileSize, fullDate } from "@/lib/format";
 import { archive, markSeen, moveTo, remove, reply, reportError, toggleFlagged, toggleSeen } from "@/lib/actions";
-import { ownAddresses } from "@/lib/reply";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { HtmlBody, TextBody } from "./MessageBody";
@@ -109,7 +108,6 @@ export function MessageView({
 }) {
   const { t, i18n } = useTranslation();
   const revision = useMail((s) => s.revision);
-  const ownEmails = useMail(useShallow((s) => ownAddresses(s.accounts).map((e) => e.toLowerCase())));
   const [msg, setMsg] = useState<MessageDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allowed, setAllowed] = useState(false);
@@ -144,9 +142,7 @@ export function MessageView({
       </div>
     );
 
-  const nameOrMe = (email: string, name: string | null) =>
-    ownEmails.includes(email.toLowerCase()) ? t("reader.me") : name || email;
-  const recipients = [...msg.to, ...msg.cc].map((a) => nameOrMe(a.email, a.name)).join(", ");
+  const recipients = [...msg.to, ...msg.cc].map((a) => a.email).join(", ");
 
   return (
     <article className="py-4">
@@ -158,7 +154,7 @@ export function MessageView({
             {msg.from?.name && <span className="selectable truncate text-xs text-muted">{msg.from.email}</span>}
             {unsubscribeLink && <UnsubscribeLink msg={msg} />}
           </div>
-          <div className="truncate text-xs text-muted" title={[...msg.to, ...msg.cc].map((a) => a.email).join(", ")}>
+          <div className="selectable truncate text-xs text-muted" title={recipients}>
             {t("reader.to", { list: recipients || t("list.noRecipient") })}
           </div>
         </div>

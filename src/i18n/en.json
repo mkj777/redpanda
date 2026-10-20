@@ -84,7 +84,6 @@
   "reader": {
     "empty": "No message selected",
     "loading": "Loading message",
-    "me": "me",
     "to": "to {{list}}",
     "remoteBlocked": "Remote images are blocked to protect your privacy.",
     "loadImages": "Load images",
