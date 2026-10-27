@@ -677,6 +677,7 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       return method;
     }
     case "allow_remote_content":
+    case "export_pdf":
     case "save_attachment":
     case "open_attachment":
       return null;

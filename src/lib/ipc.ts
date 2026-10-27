@@ -257,6 +257,8 @@ export const api = {
   unsubscribe: (messageId: number, page = false) => call<UnsubscribeMethod>("unsubscribe", { messageId, page }),
   saveAttachment: (messageId: number, index: number, path: string) =>
     call<void>("save_attachment", { messageId, index, path }),
+  exportPdf: (messageId: number, path: string, allowRemote: boolean) =>
+    call<void>("export_pdf", { messageId, path, allowRemote }),
   openAttachment: (messageId: number, index: number) => call<void>("open_attachment", { messageId, index }),
   sendMessage: (draft: Draft) => call<void>("send_message", { draft }),
   saveDraft: (draft: Draft) => call<number>("save_draft", { draft }),
@@ -391,8 +393,8 @@ export async function pickFiles(): Promise<string[]> {
   return Array.isArray(result) ? result : [result];
 }
 
-export async function pickSavePath(defaultName: string): Promise<string | null> {
+export async function pickSavePath(defaultName: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null> {
   if (!isTauri) return null;
   const { save } = await import("@tauri-apps/plugin-dialog");
-  return save({ defaultPath: defaultName });
+  return save({ defaultPath: defaultName, filters });
 }

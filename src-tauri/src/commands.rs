@@ -168,6 +168,18 @@ pub fn save_attachment(state: AppState<'_>, message_id: i64, index: u32, path: S
 }
 
 #[tauri::command]
+pub async fn export_pdf(
+    app: AppHandle,
+    state: AppState<'_>,
+    message_id: i64,
+    path: String,
+    allow_remote: bool,
+) -> Result<()> {
+    let msg = state.get_message(message_id).await?;
+    crate::pdf::export(&app, crate::pdf::document(&msg, allow_remote), std::path::Path::new(&path)).await
+}
+
+#[tauri::command]
 pub fn open_attachment(app: AppHandle, state: AppState<'_>, message_id: i64, index: u32) -> Result<()> {
     let path = state.attachment_temp_file(message_id, index)?;
     app.opener()

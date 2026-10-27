@@ -3815,7 +3815,7 @@ dependencies = [
 
 [[package]]
 name = "redpanda"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ammonia",
  "async-imap",
@@ -3858,6 +3858,7 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots",
+ "webview2-com",
  "windows",
 ]
 

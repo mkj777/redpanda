@@ -2,6 +2,7 @@ import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   Archive,
   Download,
+  FileDown,
   ExternalLink,
   FileText,
   Forward,
@@ -222,6 +223,7 @@ export function ReadingPane() {
   const selectedId = useMail((s) => s.selectedId);
   const summary = useMail((s) => s.messages.find((m) => m.id === s.selectedId) ?? null);
   const threads = useSettings((s) => s.threads);
+  const autoLoad = useSettings((s) => s.autoLoadImages);
   // In the unread view a read message drops out of the list, so it is only marked once the user moves on.
   const markOnLeave = useMail((s) => s.view.kind === "unified" && s.view.which === "unread");
   const [thread, setThread] = useState<MessageSummary[]>([]);
@@ -284,6 +286,16 @@ export function ReadingPane() {
           <Trash2 size={16} />
         </IconButton>
         <MoveMenu summary={summary} />
+        <IconButton
+          label={t("action.exportPdf")}
+          onClick={async () => {
+            const name = (latest.subject || t("list.noSubject")).replace(/[\/:*?"<>|]+/g, " ").trim().slice(0, 80);
+            const path = await pickSavePath(`${name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
+            if (path) await api.exportPdf(latest.id, path, autoLoad).catch(reportError);
+          }}
+        >
+          <FileDown size={16} />
+        </IconButton>
         <span className="flex-1" />
         <IconButton
           label={summary.flagged ? t("action.unstar") : t("action.star")}

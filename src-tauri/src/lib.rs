@@ -9,6 +9,7 @@ pub mod send;
 pub mod service;
 pub mod store;
 pub mod sync;
+mod pdf;
 mod titlebar;
 pub(crate) mod tray;
 pub mod unsubscribe;
@@ -187,6 +188,7 @@ pub fn run() {
             commands::unsubscribe,
             commands::save_attachment,
             commands::open_attachment,
+            commands::export_pdf,
             commands::send_message,
             commands::save_draft,
             commands::list_drafts,
