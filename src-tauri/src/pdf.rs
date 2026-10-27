@@ -8,7 +8,10 @@ use crate::error::{AppError, Result};
 use crate::model::{Address, MessageDetail};
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn address(a: &Address) -> String {
@@ -28,11 +31,23 @@ fn list(label: &str, addrs: &[Address]) -> String {
 
 /// The page that gets printed: a header block with the addresses, then the body.
 pub fn document(msg: &MessageDetail, allow_remote: bool) -> String {
-    let img = if allow_remote { "data: https: http:" } else { "data:" };
+    let img = if allow_remote {
+        "data: https: http:"
+    } else {
+        "data:"
+    };
     let date = chrono::DateTime::from_timestamp(msg.summary.date, 0)
-        .map(|d| d.with_timezone(&chrono::Local).format("%d.%m.%Y %H:%M").to_string())
+        .map(|d| {
+            d.with_timezone(&chrono::Local)
+                .format("%d.%m.%Y %H:%M")
+                .to_string()
+        })
         .unwrap_or_default();
-    let subject = if msg.summary.subject.is_empty() { "(no subject)" } else { &msg.summary.subject };
+    let subject = if msg.summary.subject.is_empty() {
+        "(no subject)"
+    } else {
+        &msg.summary.subject
+    };
     let body = match (&msg.html, &msg.text) {
         (Some(h), _) => h.clone(),
         (None, t) => format!("<pre>{}</pre>", esc(t.as_deref().unwrap_or(""))),
@@ -120,7 +135,11 @@ pub async fn export(app: &tauri::AppHandle, html: String, out: &std::path::Path)
                         }
                         Ok(())
                     }));
-                    core.cast::<ICoreWebView2_7>()?.PrintToPdf(&HSTRING::from(path.as_str()), &settings, &handler)
+                    core.cast::<ICoreWebView2_7>()?.PrintToPdf(
+                        &HSTRING::from(path.as_str()),
+                        &settings,
+                        &handler,
+                    )
                 };
                 if let Err(e) = run() {
                     if let Some(t) = tx.lock().unwrap().take() {

@@ -176,7 +176,12 @@ pub async fn export_pdf(
     allow_remote: bool,
 ) -> Result<()> {
     let msg = state.get_message(message_id).await?;
-    crate::pdf::export(&app, crate::pdf::document(&msg, allow_remote), std::path::Path::new(&path)).await
+    crate::pdf::export(
+        &app,
+        crate::pdf::document(&msg, allow_remote),
+        std::path::Path::new(&path),
+    )
+    .await
 }
 
 #[tauri::command]
