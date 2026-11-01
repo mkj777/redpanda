@@ -701,17 +701,15 @@ async fn old_unread_outside_the_window() {
         (unread(&app) == ["Mail 3"]).then_some(())
     })
     .await;
-    let stored_subjects = |app: &App| {
-        core.db
-            .with(|c| {
-                let mut stmt =
-                    c.prepare("SELECT subject FROM messages WHERE subject IN ('Mail 1', 'Mail 2')")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-            })
-            .unwrap()
-    };
-    assert_eq!(stored_subjects(&app), ["Mail 1"]);
+    let stored_subjects = core
+        .db
+        .with(|c| {
+            let mut stmt = c.prepare("SELECT subject FROM messages WHERE subject IN ('Mail 1', 'Mail 2')")?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .unwrap();
+    assert_eq!(stored_subjects, ["Mail 1"]);
 
     // Loading older mail fills the gap below the 500 newest.
     let inbox_id = app
