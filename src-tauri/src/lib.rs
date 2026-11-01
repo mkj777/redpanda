@@ -6,6 +6,7 @@ pub mod mcp;
 pub mod mime;
 pub mod model;
 mod pdf;
+mod remote_images;
 pub mod send;
 pub mod service;
 pub mod store;
@@ -98,6 +99,11 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(remote_images::SCHEME, |_ctx, request, responder| {
+            tauri::async_runtime::spawn(async move {
+                responder.respond(remote_images::serve(request).await);
+            });
+        })
         // First, so a second start only brings the running window back and never opens the
         // database a second time.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {

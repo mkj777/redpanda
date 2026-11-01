@@ -366,7 +366,10 @@ JVBERi0xLjQK\r\n\
         assert!(!html.contains("javascript:"), "{html}");
         assert!(html.contains("data:image/png;base64,iVBORw0KGgo="), "{html}");
         assert!(html.contains("style=\"color:red\""), "{html}");
-        assert!(html.contains("https://tracker.example/pixel.gif"));
+        assert!(
+            html.contains("?u=https%3A%2F%2Ftracker.example%2Fpixel.gif"),
+            "{html}"
+        );
         assert!(b.has_remote);
 
         let pdf = b.attachments.iter().find(|a| a.filename == "report.pdf").unwrap();

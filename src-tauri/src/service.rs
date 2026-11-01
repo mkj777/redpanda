@@ -1033,7 +1033,7 @@ const SETTING_CLOSE_TO_TRAY: &str = "close_to_tray";
 const SETTING_TRAY_HINT_SHOWN: &str = "tray_hint_shown";
 const SETTING_AUTOSTART: &str = "autostart";
 const SETTING_HTML_VERSION: &str = "html_version";
-/// Raise when the sanitizer changes what it keeps, so stored bodies get cleaned again.
+/// Raise when the sanitizer changes its output, so stored bodies get cleaned again.
 const HTML_VERSION: &str = "2";
 
 #[derive(Debug, Clone, Serialize)]

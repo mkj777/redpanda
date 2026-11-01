@@ -84,7 +84,9 @@ pub fn sanitize_html(html: &str, cid_map: &HashMap<String, String>) -> Sanitized
         .add_tag_attributes("img", &["src", "alt", "width", "height", "border", "align"])
         .add_tag_attributes("a", &["href", "name"])
         .add_tag_attributes("font", &["color", "face", "size"])
-        .url_schemes(HashSet::from(["http", "https", "mailto", "data", "cid", "tel"]))
+        .url_schemes(HashSet::from([
+            "http", "https", "mailto", "data", "cid", "tel", "rpimg",
+        ]))
         .link_rel(Some("noopener noreferrer"))
         .strip_comments(true)
         .attribute_filter(move |element, attribute, value| {
@@ -124,6 +126,12 @@ fn filter_attribute<'u>(
             if lower.starts_with("data:") && !(element == "img" && lower.starts_with("data:image/")) {
                 return None;
             }
+            if remote {
+                // Loaded through the app, see `remote_images`.
+                if let Some(p) = crate::remote_images::proxied(value) {
+                    return Some(Cow::Owned(p));
+                }
+            }
             Some(Cow::Borrowed(value))
         }
         "href" if lower.starts_with("data:") || lower.starts_with("cid:") => None,
@@ -134,6 +142,9 @@ fn filter_attribute<'u>(
             // Old IE expressions and behaviours are the only script vectors in CSS.
             if lower.contains("expression(") || lower.contains("behavior:") || lower.contains("javascript:") {
                 return None;
+            }
+            if lower.contains("url(") {
+                return Some(Cow::Owned(crate::remote_images::rewrite_css(value)));
             }
             Some(Cow::Borrowed(value))
         }
@@ -164,6 +175,8 @@ mod tests {
     fn detects_tracking_pixels_and_css_backgrounds() {
         let s = sanitize_html("<img src=\"https://t.example/p.gif\">", &HashMap::new());
         assert!(s.has_remote);
+        assert!(s.html.contains("rpimg"), "{}", s.html);
+        assert!(!s.html.contains("src=\"https://"), "{}", s.html);
         let s = sanitize_html(
             "<div style=\"background:url(https://t.example/bg.png)\">x</div>",
             &HashMap::new(),
