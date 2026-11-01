@@ -128,8 +128,17 @@ impl Conn {
     }
 
     async fn ensure_selected(&mut self, path: &str) -> Result<&mut Session> {
-        if self.session.is_none() || self.selected.as_deref() != Some(path) {
-            self.select(path).await?;
+        match self.session.as_mut() {
+            Some(session) if self.selected.as_deref() == Some(path) => {
+                // A session only learns about messages that arrived after it selected the
+                // folder when the server tells it. Until then Gmail answers a FETCH or STORE for
+                // a new UID with nothing, so the message looks deleted and a flag change is lost.
+                session.noop().await?;
+                imap_conn::drain_unsolicited(session);
+            }
+            _ => {
+                self.select(path).await?;
+            }
         }
         Ok(self.session.as_mut().expect("connected"))
     }
@@ -232,10 +241,19 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         let local = core
             .db
             .with(|c| queries::uids_in_range(c, folder.id, oldest, max))?;
-        let gone: Vec<u32> = local.into_iter().filter(|u| !present.contains(u)).collect();
+        let local: HashSet<u32> = local.into_iter().collect();
+        let gone: Vec<u32> = local.iter().copied().filter(|u| !present.contains(u)).collect();
         if !gone.is_empty() {
             core.db.with(|c| queries::delete_by_uids(c, folder.id, &gone))?;
             changed = true;
+        }
+        // Messages inside the window that are missing here, dropped by mistake before.
+        let mut lost: Vec<u32> = present.iter().copied().filter(|u| !local.contains(u)).collect();
+        if !lost.is_empty() {
+            lost.sort_unstable_by(|a, b| b.cmp(a));
+            lost.truncate(MAX_OLD_UNREAD);
+            let fetches = conn.fetch_headers(uid_set(&lost), true).await?;
+            changed |= store_fetches(&core, &account, folder, &fetches, None)? > 0;
         }
     } else {
         // First sync: the newest messages by sequence number.
@@ -256,6 +274,12 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         session.uid_search("UNSEEN").await?
     };
     let unread = unseen.len() as i64;
+    // Unread on the server but read here: a flag change that never reached the server.
+    let unseen_list: Vec<u32> = unseen.iter().copied().collect();
+    changed |= core
+        .db
+        .with(|c| queries::mark_unseen_uids(c, folder.id, &unseen_list))?
+        > 0;
     if mb.exists > 0 {
         changed |= sync_old_unread(conn, folder, &unseen).await?;
     }
@@ -535,7 +559,15 @@ pub async fn fetch_body(conn: &mut Conn, message_id: i64) -> Result<()> {
         .and_then(|f| f.body())
         .map(<[u8]>::to_vec)
     else {
-        // Deleted on the server in the meantime.
+        // Only drop the row when the server confirms the message is gone.
+        let session = conn.session.as_mut().expect("selected");
+        if session
+            .uid_search(format!("UID {}", msg.uid))
+            .await?
+            .contains(&msg.uid)
+        {
+            return Err(AppError::Imap(format!("no body for message {message_id}")));
+        }
         core.db.with(|c| queries::delete_messages(c, &[message_id]))?;
         core.mail_changed(&msg.account_id, Some(msg.folder_id));
         return Err(AppError::NotFound(format!("message {message_id}")));

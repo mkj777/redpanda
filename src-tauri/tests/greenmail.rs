@@ -727,5 +727,50 @@ async fn old_unread_outside_the_window() {
         .unwrap();
     assert_eq!(stored, (TOTAL - 1) as i64);
 
+    // A row dropped by mistake comes back, and a mail read only here is unread again.
+    core.db
+        .with(|c| {
+            c.execute("DELETE FROM messages WHERE subject = 'Mail 520'", [])?;
+            c.execute("UPDATE messages SET seen = 1 WHERE subject = 'Mail 3'", [])?;
+            Ok(())
+        })
+        .unwrap();
+    app.sync_now(None);
+    eventually("the repaired inbox", || {
+        let back = core
+            .db
+            .with(|c| {
+                Ok(c.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE subject = 'Mail 520'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )?)
+            })
+            .unwrap()
+            == 1;
+        (back && unread(&app) == ["Mail 3"]).then_some(())
+    })
+    .await;
+
+    // A mail that arrives after the action connection selected the inbox opens normally.
+    let first = inbox(&app)[0].id;
+    app.get_message(first).await.unwrap();
+    {
+        let mut s = raw_session(&user).await;
+        let raw = format!("From: Sender <sender@example.com>\r\nTo: {user}\r\nSubject: Late mail\r\nMessage-ID: <late-{id}@example.com>\r\n\r\nLate body");
+        s.append("INBOX", None, None, raw.as_bytes()).await.unwrap();
+        let _ = s.logout().await;
+    }
+    app.sync_now(None);
+    let late = eventually("the late mail", || {
+        inbox(&app)
+            .into_iter()
+            .find(|m| m.subject == "Late mail")
+            .map(|m| m.id)
+    })
+    .await;
+    let detail = app.get_message(late).await.unwrap();
+    assert_eq!(detail.text.as_deref().map(str::trim), Some("Late body"));
+
     app.remove_account(&account.id).unwrap();
 }
