@@ -598,3 +598,136 @@ async fn send_as_alias() {
 
     app.remove_account(&account.id).unwrap();
 }
+
+/// Unread mail older than the 500 newest still shows up under "Unread", follows changes on the
+/// server, and loading older mail closes the gap without losing anything.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a GreenMail container"]
+async fn old_unread_outside_the_window() {
+    let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let user = format!("u{id}@example.com");
+    const TOTAL: u32 = 520;
+    {
+        let mut s = raw_session(&user).await;
+        for n in 1..=TOTAL {
+            let raw = [
+                "From: Sender <sender@example.com>".to_string(),
+                format!("To: {user}"),
+                format!("Subject: Mail {n}"),
+                format!("Message-ID: <m{n}-{id}@example.com>"),
+                "Date: Sat, 17 Oct 2026 09:00:00 +0000".into(),
+                String::new(),
+                format!("Body {n}"),
+            ]
+            .join("\r\n");
+            // Only the three oldest stay unread.
+            let flags = if n <= 3 { None } else { Some(r"(\Seen)") };
+            s.append("INBOX", flags, None, raw.as_bytes()).await.unwrap();
+        }
+        let _ = s.logout().await;
+    }
+
+    let core = Arc::new(Core::new(
+        Db::open_in_memory().unwrap(),
+        Secrets::from_key(&[9u8; 32]).unwrap(),
+        OAuthConfig::default(),
+        Arc::new(NoEvents),
+    ));
+    let app = App::new(core.clone());
+    let account = app
+        .add_account(
+            NewAccountInput {
+                email: user.clone(),
+                display_name: "Test User".into(),
+                provider_id: None,
+                username: user.clone(),
+                imap: imap_cfg(),
+                smtp: smtp_cfg(),
+                auth: NewAuth::Password {
+                    password: "secret".into(),
+                },
+            },
+            |_| Ok(()),
+        )
+        .await
+        .unwrap()
+        .account;
+
+    let unread = |app: &App| {
+        let mut subjects: Vec<String> = app
+            .list_messages(
+                &View::Unified {
+                    which: UnifiedView::Unread,
+                },
+                0,
+                50,
+                false,
+            )
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|m| m.subject)
+            .collect();
+        subjects.sort();
+        subjects
+    };
+    eventually("the old unread mail", || (unread(&app).len() == 3).then_some(())).await;
+    assert_eq!(unread(&app), ["Mail 1", "Mail 2", "Mail 3"]);
+    let counts = app.list_folders().unwrap().unified;
+    assert_eq!(counts.inbox_unread, 3);
+    assert_eq!(counts.unread, 3);
+    // The newest 500 plus the three below them.
+    let stored = core
+        .db
+        .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?))
+        .unwrap();
+    assert_eq!(stored, 503);
+
+    // Read on another device, and deleted on another device.
+    {
+        let mut s = raw_session(&user).await;
+        s.select("INBOX").await.unwrap();
+        imap_conn::collect(s.uid_store("1", r"+FLAGS.SILENT (\Seen)").await.unwrap())
+            .await
+            .unwrap();
+        imap_conn::collect(s.uid_store("2", r"+FLAGS.SILENT (\Deleted)").await.unwrap())
+            .await
+            .unwrap();
+        imap_conn::collect(s.expunge().await.unwrap()).await.unwrap();
+        let _ = s.logout().await;
+    }
+    app.sync_now(None);
+    eventually("the changes from the server", || {
+        (unread(&app) == ["Mail 3"]).then_some(())
+    })
+    .await;
+    let stored_subjects = |app: &App| {
+        core.db
+            .with(|c| {
+                let mut stmt =
+                    c.prepare("SELECT subject FROM messages WHERE subject IN ('Mail 1', 'Mail 2')")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .unwrap()
+    };
+    assert_eq!(stored_subjects(&app), ["Mail 1"]);
+
+    // Loading older mail fills the gap below the 500 newest.
+    let inbox_id = app
+        .list_folders()
+        .unwrap()
+        .folders
+        .into_iter()
+        .find(|f| f.account_id == account.id && f.role == "inbox")
+        .unwrap()
+        .id;
+    while app.load_older(inbox_id).await.unwrap() {}
+    let stored = core
+        .db
+        .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?))
+        .unwrap();
+    assert_eq!(stored, (TOTAL - 1) as i64);
+
+    app.remove_account(&account.id).unwrap();
+}

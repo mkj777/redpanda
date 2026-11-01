@@ -16,6 +16,8 @@ use crate::unsubscribe;
 
 /// Messages fetched per folder on first sync.
 pub const INITIAL_WINDOW: u32 = 500;
+/// Unread messages older than the loaded range, stored per folder and sync at most.
+const MAX_OLD_UNREAD: usize = 500;
 /// Messages fetched per "load older" request.
 pub const OLDER_BATCH: usize = 200;
 /// Messages per request when reading the unsubscribe headers of already synced mail.
@@ -194,6 +196,7 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
             c.execute("DELETE FROM messages WHERE folder_id = ?1", [folder.id])
                 .map_err(AppError::from)
         })?;
+        core.db.with(|c| queries::set_window_start(c, folder.id, None))?;
         changed |= n > 0;
     } else if let Some(max) = known_max {
         // New messages.
@@ -204,7 +207,10 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         let session = conn.session.as_mut().expect("selected");
 
         // Flag changes and deletions within the synced window.
-        let oldest = core.db.with(|c| queries::min_uid(c, folder.id))?.unwrap_or(1);
+        let oldest = core
+            .db
+            .with(|c| queries::window_start(c, folder.id))?
+            .unwrap_or(1);
         let use_condstore = caps.condstore && folder.highestmodseq.is_some() && mb.highest_modseq.is_some();
         let present: HashSet<u32> = if use_condstore {
             if mb.highest_modseq != folder.highestmodseq {
@@ -236,17 +242,24 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         let start = mb.exists.saturating_sub(INITIAL_WINDOW - 1).max(1);
         let fetches = conn.fetch_headers(format!("{start}:*"), false).await?;
         changed |= store_fetches(&core, &account, folder, &fetches, None)? > 0;
+        let first = fetches.iter().filter_map(|f| f.uid).min();
+        core.db.with(|c| queries::set_window_start(c, folder.id, first))?;
         if start == 1 {
             core.db.with(|c| queries::set_fully_loaded(c, folder.id, true))?;
         }
     }
 
     let session = conn.session.as_mut().expect("selected");
-    let unread = if mb.exists == 0 {
-        0
+    let unseen = if mb.exists == 0 {
+        HashSet::new()
     } else {
-        session.uid_search("UNSEEN").await?.len() as i64
+        session.uid_search("UNSEEN").await?
     };
+    let unread = unseen.len() as i64;
+    if mb.exists > 0 {
+        changed |= sync_old_unread(conn, folder, &unseen).await?;
+    }
+    let session = conn.session.as_mut().expect("selected");
     imap_conn::drain_unsolicited(session);
     core.db.with(|c| {
         queries::update_folder_sync_state(
@@ -266,6 +279,52 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
     }
     if changed {
         core.mail_changed(&account.id, Some(folder.id));
+    }
+    Ok(changed)
+}
+
+/// Keeps the unread messages older than the loaded range in step with the server, so the
+/// unread views show what the folder's unread count says. Runs with the folder selected.
+async fn sync_old_unread(conn: &mut Conn, folder: &FolderRow, unseen: &HashSet<u32>) -> Result<bool> {
+    let core = conn.core.clone();
+    let account = conn.account()?;
+    let Some(window) = core.db.with(|c| queries::window_start(c, folder.id))? else {
+        return Ok(false);
+    };
+    // Pin the range before anything below it is stored.
+    core.db
+        .with(|c| queries::set_window_start(c, folder.id, Some(window)))?;
+    let stored: HashSet<u32> = core
+        .db
+        .with(|c| queries::uids_below(c, folder.id, window))?
+        .into_iter()
+        .collect();
+    let mut changed = false;
+
+    let mut missing: Vec<u32> = unseen
+        .iter()
+        .copied()
+        .filter(|u| *u < window && !stored.contains(u))
+        .collect();
+    missing.sort_unstable_by(|a, b| b.cmp(a));
+    missing.truncate(MAX_OLD_UNREAD);
+    if !missing.is_empty() {
+        let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
+        changed |= store_fetches(&core, &account, folder, &fetches, None)? > 0;
+    }
+
+    // Stored ones that are no longer unread were read or deleted elsewhere (or read here).
+    let check: Vec<u32> = stored.into_iter().filter(|u| !unseen.contains(u)).collect();
+    if !check.is_empty() {
+        let session = conn.session.as_mut().expect("selected");
+        let fetches = collect(session.uid_fetch(uid_set(&check), "(UID FLAGS)").await?).await?;
+        changed |= apply_flags(&core, folder, &fetches)?;
+        let present: HashSet<u32> = fetches.iter().filter_map(|f| f.uid).collect();
+        let gone: Vec<u32> = check.into_iter().filter(|u| !present.contains(u)).collect();
+        if !gone.is_empty() {
+            core.db.with(|c| queries::delete_by_uids(c, folder.id, &gone))?;
+            changed = true;
+        }
     }
     Ok(changed)
 }
@@ -411,7 +470,7 @@ pub async fn load_older(conn: &mut Conn, folder_id: i64) -> Result<bool> {
     if folder.fully_loaded {
         return Ok(false);
     }
-    let oldest = core.db.with(|c| queries::min_uid(c, folder.id))?;
+    let oldest = core.db.with(|c| queries::window_start(c, folder.id))?;
     let session = conn.ensure_selected(&folder.path).await?;
     let query = match oldest {
         Some(1) => {
@@ -428,6 +487,9 @@ pub async fn load_older(conn: &mut Conn, folder_id: i64) -> Result<bool> {
     if !uids.is_empty() {
         let fetches = conn.fetch_headers(uid_set(&uids), true).await?;
         store_fetches(&core, &account, &folder, &fetches, None)?;
+        // The batch is contiguous with the range above it, so the range now starts here.
+        core.db
+            .with(|c| queries::set_window_start(c, folder.id, uids.last().copied()))?;
         core.mail_changed(&account.id, Some(folder.id));
     }
     if !more {

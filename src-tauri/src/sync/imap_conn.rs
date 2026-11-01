@@ -199,8 +199,12 @@ pub async fn select(session: &mut Session, path: &str, condstore: bool) -> Resul
     Ok(mb)
 }
 
-pub fn drain_unsolicited(session: &mut Session) {
-    while session.unsolicited_responses.try_recv().is_ok() {}
+pub fn drain_unsolicited(session: &mut Session) -> usize {
+    let mut n = 0;
+    while session.unsolicited_responses.try_recv().is_ok() {
+        n += 1;
+    }
+    n
 }
 
 /// Collects a FETCH/STORE response stream fully so the connection is ready for the next command.

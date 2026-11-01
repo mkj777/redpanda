@@ -8,6 +8,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0002_unsubscribe.sql"),
     include_str!("migrations/0003_aliases.sql"),
     include_str!("migrations/0004_settings.sql"),
+    include_str!("migrations/0005_window.sql"),
 ];
 
 pub fn apply(conn: &mut Connection) -> Result<()> {

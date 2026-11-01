@@ -25,6 +25,8 @@ use engine::Conn;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
+/// The second inbox sync after IDLE reported a change.
+const FOLLOW_UP: Duration = Duration::from_secs(15);
 const NO_IDLE_POLL: Duration = Duration::from_secs(2 * 60);
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
 /// How often a Gmail account re-reads its send-as addresses, after a full sync.
@@ -456,6 +458,12 @@ async fn idle_session(core: &Arc<Core>, account_id: &str, bg: &mpsc::UnboundedSe
     }
     imap_conn::select(&mut session, &inbox.path, false).await?;
     loop {
+        // Changes the server reported while redpanda was not idling (a message expunged right
+        // after a new one arrived) would be lost otherwise, and the stale copy stayed in the list
+        // until the next full sync.
+        if imap_conn::drain_unsolicited(&mut session) > 0 && bg.send(BgCmd::SyncFolder(inbox.id)).is_err() {
+            return Ok(());
+        }
         let mut idle = session.idle();
         idle.init().await?;
         let (wait, stop) = idle.wait_with_timeout(IDLE_TIMEOUT);
@@ -471,6 +479,15 @@ async fn idle_session(core: &Arc<Core>, account_id: &str, bg: &mpsc::UnboundedSe
             if bg.send(BgCmd::SyncFolder(inbox.id)).is_err() {
                 return Ok(());
             }
+            // Some servers replace a new message shortly after delivering it (a filter or label
+            // applied late). A second look catches that even when the change arrives between two
+            // IDLE rounds, where its notification is not seen.
+            let later = bg.clone();
+            let folder_id = inbox.id;
+            tokio::spawn(async move {
+                tokio::time::sleep(FOLLOW_UP).await;
+                let _ = later.send(BgCmd::SyncFolder(folder_id));
+            });
         } else if session.noop().await.is_err() {
             return Err(AppError::Network("idle keepalive failed".into()));
         }

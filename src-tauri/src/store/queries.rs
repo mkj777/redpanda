@@ -355,7 +355,7 @@ pub fn set_fully_loaded(c: &Connection, id: i64, value: bool) -> Result<()> {
 pub fn reset_folder(c: &Connection, id: i64) -> Result<()> {
     c.execute("DELETE FROM messages WHERE folder_id = ?1", [id])?;
     c.execute(
-        "UPDATE folders SET uidvalidity = NULL, uidnext = NULL, highestmodseq = NULL, fully_loaded = 0 WHERE id = ?1",
+        "UPDATE folders SET uidvalidity = NULL, uidnext = NULL, highestmodseq = NULL, fully_loaded = 0,          window_start = NULL WHERE id = ?1",
         [id],
     )?;
     Ok(())
@@ -508,13 +508,31 @@ pub fn max_uid(c: &Connection, folder_id: i64) -> Result<Option<u32>> {
     .map(|v| v as u32))
 }
 
-pub fn min_uid(c: &Connection, folder_id: i64) -> Result<Option<u32>> {
+/// Where the folder's contiguous range of loaded messages begins, see `0005_window.sql`.
+pub fn window_start(c: &Connection, folder_id: i64) -> Result<Option<u32>> {
     Ok(c.query_row(
-        "SELECT MIN(uid) FROM messages WHERE folder_id = ?1",
+        "SELECT COALESCE(window_start, (SELECT MIN(uid) FROM messages WHERE folder_id = ?1))          FROM folders WHERE id = ?1",
         [folder_id],
         |r| r.get::<_, Option<i64>>(0),
     )?
     .map(|v| v as u32))
+}
+
+pub fn set_window_start(c: &Connection, folder_id: i64, uid: Option<u32>) -> Result<()> {
+    c.execute(
+        "UPDATE folders SET window_start = ?2 WHERE id = ?1",
+        params![folder_id, uid],
+    )?;
+    Ok(())
+}
+
+/// Stored UIDs below the loaded range, the unread messages fetched on their own.
+pub fn uids_below(c: &Connection, folder_id: i64, below: u32) -> Result<Vec<u32>> {
+    let mut stmt = c.prepare("SELECT uid FROM messages WHERE folder_id = ?1 AND uid < ?2")?;
+    let rows = stmt.query_map(params![folder_id, below], |r| r.get::<_, i64>(0))?;
+    Ok(rows
+        .map(|r| r.map(|v| v as u32))
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn uids_in_range(c: &Connection, folder_id: i64, from: u32, to: u32) -> Result<Vec<u32>> {
