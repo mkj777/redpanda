@@ -859,6 +859,24 @@ pub fn save_body(c: &Connection, message_id: i64, body: &BodyRow, raw: &[u8]) ->
     Ok(())
 }
 
+/// Every stored raw message that has HTML, for re-sanitizing after the rules changed.
+pub fn html_bodies(c: &Connection) -> Result<Vec<(i64, Vec<u8>)>> {
+    let mut stmt =
+        c.prepare("SELECT message_id, raw FROM bodies WHERE html IS NOT NULL AND raw IS NOT NULL")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn update_html(c: &Connection, message_id: i64, html: Option<&str>, has_remote: bool) -> Result<()> {
+    c.execute(
+        "UPDATE bodies SET html = ?2, has_remote = ?3 WHERE message_id = ?1",
+        params![message_id, html, has_remote],
+    )?;
+    Ok(())
+}
+
 pub fn get_body(c: &Connection, message_id: i64) -> Result<Option<BodyRow>> {
     Ok(c.query_row(
         "SELECT text, html, has_remote, attachments_json FROM bodies WHERE message_id = ?1",

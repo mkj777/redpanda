@@ -55,7 +55,12 @@ export function Composer() {
   draftRef.current = draft;
 
   useEffect(() => {
-    if (!composer) return;
+    if (!composer) {
+      // Without this the autosave timer would store the sent or discarded draft again.
+      dirty.current = false;
+      setDraft(null);
+      return;
+    }
     setDraft(composer.draft);
     setShowCc(composer.draft.cc.length > 0 || composer.draft.bcc.length > 0);
     setError(null);

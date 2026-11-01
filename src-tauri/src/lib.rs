@@ -128,6 +128,12 @@ pub fn run() {
             let state = Arc::new(App::new(core));
             // Workers use tokio::spawn, so start them inside Tauri's runtime.
             tauri::async_runtime::block_on(async { state.sync.start_all() })?;
+            let refresh = state.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = refresh.refresh_stored_html() {
+                    tracing::warn!("could not refresh stored mail HTML: {e}");
+                }
+            });
             let mcp = mcp::Mcp::new(state.clone());
             app.manage(state);
             app.manage(mcp.clone());

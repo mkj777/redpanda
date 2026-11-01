@@ -120,6 +120,24 @@ impl App {
         }
     }
 
+    /// Cleans the stored HTML of loaded mails again when the sanitizer rules changed since.
+    pub fn refresh_stored_html(&self) -> Result<()> {
+        let db = &self.core.db;
+        if db
+            .with(|c| queries::get_setting(c, SETTING_HTML_VERSION))?
+            .as_deref()
+            == Some(HTML_VERSION)
+        {
+            return Ok(());
+        }
+        let bodies = db.with(|c| queries::html_bodies(c))?;
+        for (id, raw) in bodies {
+            let parsed = mime::parse::parse_body(&raw);
+            db.with(|c| queries::update_html(c, id, parsed.html.as_deref(), parsed.has_remote))?;
+        }
+        db.with(|c| queries::set_setting(c, SETTING_HTML_VERSION, HTML_VERSION))
+    }
+
     // -----------------------------------------------------------------------------------------
     // Accounts
 
@@ -1014,6 +1032,9 @@ impl App {
 const SETTING_CLOSE_TO_TRAY: &str = "close_to_tray";
 const SETTING_TRAY_HINT_SHOWN: &str = "tray_hint_shown";
 const SETTING_AUTOSTART: &str = "autostart";
+const SETTING_HTML_VERSION: &str = "html_version";
+/// Raise when the sanitizer changes what it keeps, so stored bodies get cleaned again.
+const HTML_VERSION: &str = "2";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

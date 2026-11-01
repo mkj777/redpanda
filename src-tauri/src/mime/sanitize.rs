@@ -77,6 +77,8 @@ pub fn sanitize_html(html: &str, cid_map: &HashMap<String, String>) -> Sanitized
     let mut builder = ammonia::Builder::default();
     builder
         .rm_clean_content_tags(&["style"])
+        // The document title would otherwise end up as a stray line above the mail.
+        .add_clean_content_tags(&["title"])
         .add_tags(EXTRA_TAGS)
         .add_generic_attributes(GENERIC_ATTRS)
         .add_tag_attributes("img", &["src", "alt", "width", "height", "border", "align"])
@@ -178,6 +180,16 @@ mod tests {
         );
         assert!(!s.html.contains("expression"), "{}", s.html);
         assert!(!s.html.contains("data:text/html"), "{}", s.html);
+    }
+
+    #[test]
+    fn drops_the_document_title() {
+        let s = sanitize_html(
+            "<html><head><title>Login Code: 1234</title></head><body><p>Hi</p></body></html>",
+            &HashMap::new(),
+        );
+        assert!(!s.html.contains("Login Code"), "{}", s.html);
+        assert!(s.html.contains("Hi"));
     }
 
     #[test]
