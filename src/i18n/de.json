@@ -318,5 +318,15 @@
     "no_archive_folder": "Dieses Konto hat keinen Archivordner.",
     "cancelled": "Abgebrochen.",
     "other": "Etwas ist schiefgelaufen."
+  },
+  "defaultMail": {
+    "title": "redpanda als Standard festlegen?",
+    "text": "Dann öffnen sich E-Mail-Links aus dem Browser und anderen Programmen in redpanda.",
+    "never": "Nicht mehr fragen",
+    "later": "Später",
+    "make": "Festlegen",
+    "setting": "Standard-Mailprogramm",
+    "isDefault": "redpanda ist dein Standard-Mailprogramm",
+    "setDefault": "Als Standard festlegen"
   }
 }

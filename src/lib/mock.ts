@@ -458,6 +458,7 @@ function moveTo(ids: number[], role: FolderRole | number) {
 }
 
 const appSettings = { closeToTray: true, autostart: true };
+const defaultMail = { isDefault: false, ask: true };
 
 const mcp = { enabled: false, port: 47821, keyCreated: false, key: `rp_${"3f2a".repeat(16)}` };
 
@@ -723,6 +724,16 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       return null;
     case "set_autostart":
       appSettings.autostart = Boolean(args.value);
+      return null;
+    case "default_mail_status":
+      return { supported: true, isDefault: defaultMail.isDefault, ask: defaultMail.ask };
+    case "set_default_mail_ask":
+      defaultMail.ask = Boolean(args.value);
+      return null;
+    case "open_default_apps":
+      defaultMail.isDefault = true;
+      return null;
+    case "take_mailto":
       return null;
     case "update_status":
       return { version: "0.1.0", supported: true, available: null };

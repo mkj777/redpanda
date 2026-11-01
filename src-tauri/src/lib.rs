@@ -1,6 +1,7 @@
 pub mod accounts;
 mod commands;
 pub mod core;
+mod default_mail;
 pub mod error;
 pub mod mcp;
 pub mod mime;
@@ -49,6 +50,8 @@ impl EventSink for TauriEvents {
 pub(crate) fn window_state_flags() -> StateFlags {
     StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE
 }
+
+pub(crate) struct PendingMailto(pub std::sync::Mutex<Option<default_mail::Mailto>>);
 
 /// Passed by the Windows autostart entry.
 const AUTOSTART_ARG: &str = "--autostart";
@@ -106,8 +109,11 @@ pub fn run() {
         })
         // First, so a second start only brings the running window back and never opens the
         // database a second time.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            tray::show_main(app)
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            tray::show_main(app);
+            if let Some(m) = default_mail::from_args(&args) {
+                let _ = app.emit("ui:mailto", m);
+            }
         }))
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -154,6 +160,15 @@ pub fn run() {
             // Hidden in the config, so a start with Windows never flashes the window.
             if !std::env::args().any(|a| a == AUTOSTART_ARG) {
                 tray::show_main(app.handle());
+            }
+            // A mailto: link that started redpanda, picked up by the window once it is ready.
+            app.manage(PendingMailto(std::sync::Mutex::new(default_mail::from_args(
+                std::env::args(),
+            ))));
+            if default_mail::supported() {
+                if let Err(e) = default_mail::register() {
+                    tracing::warn!("could not register as a mail app: {e}");
+                }
             }
             app.manage(update::Updates::default());
             update::spawn_checks(app.handle().clone());
@@ -211,6 +226,10 @@ pub fn run() {
             commands::get_app_settings,
             commands::set_close_to_tray,
             commands::set_autostart,
+            commands::default_mail_status,
+            commands::set_default_mail_ask,
+            commands::open_default_apps,
+            commands::take_mailto,
             commands::update_status,
             commands::check_for_update,
             commands::install_update,

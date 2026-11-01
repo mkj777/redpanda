@@ -5,13 +5,14 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { useTranslation } from "react-i18next";
 import i18n, { resolveLanguage } from "@/i18n";
 import { api, listen } from "@/lib/ipc";
-import { compose, errorText, installUpdate } from "@/lib/actions";
+import { compose, composeMailto, errorText, installUpdate } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
 import { useShortcuts } from "@/hooks/useShortcuts";
 import { AccountWizard } from "./components/AccountWizard";
 import { Composer } from "./components/Composer";
+import { DefaultMailPrompt } from "./components/DefaultMail";
 import { MessageList } from "./components/MessageList";
 import { ReadingPane } from "./components/ReadingPane";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -83,6 +84,7 @@ function useBackendEvents() {
       }),
       listen("action:failed", (f) => useUi.getState().toast(errorText(f.error), "error")),
       listen("ui:compose", () => compose()),
+      listen("ui:mailto", (m) => composeMailto(m)),
       listen("update:available", (u) =>
         useUi.getState().toast(i18n.t("update.available", { version: u.version }), "info", {
           label: i18n.t("update.install"),
@@ -90,7 +92,13 @@ function useBackendEvents() {
         }),
       ),
     ];
-    mail.refreshAll().finally(() => setReady(true));
+    mail
+      .refreshAll()
+      .finally(() => setReady(true))
+      // Accounts are known now, so a link redpanda was started with can become a draft.
+      .then(() => api.takeMailto())
+      .then((m) => m && composeMailto(m))
+      .catch(() => undefined);
     return () => {
       clearTimeout(timer);
       subs.forEach((p) => p.then((unlisten) => unlisten()));
@@ -175,6 +183,7 @@ export default function App() {
           )}
         </main>
       </div>
+      {ready && hasAccounts && <DefaultMailPrompt />}
       <Composer />
       <AccountWizard />
       <SettingsDialog />

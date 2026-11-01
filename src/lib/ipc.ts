@@ -270,6 +270,12 @@ export const api = {
   getAppSettings: () => call<AppSettings>("get_app_settings"),
   setCloseToTray: (value: boolean) => call<void>("set_close_to_tray", { value }),
   setAutostart: (value: boolean) => call<void>("set_autostart", { value }),
+  defaultMailStatus: () => call<DefaultMailStatus>("default_mail_status"),
+  setDefaultMailAsk: (value: boolean) => call<void>("set_default_mail_ask", { value }),
+  /** Opens the Windows settings page where the user picks redpanda for mail links. */
+  openDefaultApps: () => call<void>("open_default_apps"),
+  /** The mailto: link redpanda was started with, once. */
+  takeMailto: () => call<Mailto | null>("take_mailto"),
   updateStatus: () => call<UpdateStatus>("update_status"),
   checkForUpdate: () => call<UpdateInfo | null>("check_for_update"),
   /** Closes redpanda and starts the new version once installed. */
@@ -301,6 +307,24 @@ export interface AppSettings {
   closeToTray: boolean;
   /** Starts with Windows, straight into the notification area. */
   autostart: boolean;
+}
+
+/** Whether redpanda opens mailto: links. */
+export interface DefaultMailStatus {
+  /** False in dev builds and outside Windows. */
+  supported: boolean;
+  isDefault: boolean;
+  /** False after "Don't ask again". */
+  ask: boolean;
+}
+
+/** A mailto: link, split into draft fields. */
+export interface Mailto {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  body: string;
 }
 
 /** A newer release on GitHub. */
@@ -363,6 +387,7 @@ type Events = {
   "action:failed": ActionFailed;
   "titlebar:maximize": CaptionState;
   "ui:compose": null;
+  "ui:mailto": Mailto;
   "mcp:changed": { enabled: boolean };
   "update:available": UpdateInfo;
 };

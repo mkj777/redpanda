@@ -3,6 +3,7 @@ import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Account, type AppSettings } from "@/lib/ipc";
+import { DefaultMailSetting } from "./DefaultMail";
 import { errorText } from "@/lib/actions";
 import { cn } from "@/lib/format";
 import { useMail } from "@/stores/mail";
@@ -285,6 +286,7 @@ export function SettingsDialog() {
                 />
               </>
             )}
+            <DefaultMailSetting />
             <UpdateSettings />
           </div>
         )}

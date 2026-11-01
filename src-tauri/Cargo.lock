@@ -3860,6 +3860,7 @@ dependencies = [
  "webpki-roots",
  "webview2-com",
  "windows",
+ "winreg",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 // Message actions shared by the list, the reading pane and keyboard shortcuts.
 
 import i18n from "@/i18n";
-import { api, toAppError, type AppError, type MessageDetail, type MessageSummary } from "./ipc";
+import { api, toAppError, type AppError, type Mailto, type MessageDetail, type MessageSummary } from "./ipc";
 import { buildReply, ownAddresses, type ReplyMode } from "./reply";
 import { displayName, fullDate } from "./format";
 import { useMail } from "@/stores/mail";
@@ -174,6 +174,22 @@ export function compose(accountId?: string) {
     body: "",
     references: [],
     attachments: [],
+  });
+}
+
+/** A new draft filled from a mailto: link. */
+export function composeMailto(m: Mailto) {
+  compose();
+  const c = useUi.getState().composer;
+  if (!c) return;
+  const addr = (list: string[]) => list.map((email) => ({ name: null, email }));
+  useUi.getState().openComposer("new", {
+    ...c.draft,
+    to: addr(m.to),
+    cc: addr(m.cc),
+    bcc: addr(m.bcc),
+    subject: m.subject,
+    body: m.body,
   });
 }
 

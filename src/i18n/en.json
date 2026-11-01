@@ -318,5 +318,15 @@
     "no_archive_folder": "This account has no archive folder.",
     "cancelled": "Cancelled.",
     "other": "Something went wrong."
+  },
+  "defaultMail": {
+    "title": "Make redpanda your default mail app?",
+    "text": "Email links from your browser and other apps will then open in redpanda.",
+    "never": "Don't ask again",
+    "later": "Later",
+    "make": "Make default",
+    "setting": "Default mail app",
+    "isDefault": "redpanda is your default mail app",
+    "setDefault": "Make default"
   }
 }

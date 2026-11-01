@@ -246,6 +246,40 @@ pub fn set_autostart(app: AppHandle, state: AppState<'_>, value: bool) -> Result
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultMailStatus {
+    supported: bool,
+    is_default: bool,
+    ask: bool,
+}
+
+#[tauri::command]
+pub fn default_mail_status(state: AppState<'_>) -> Result<DefaultMailStatus> {
+    Ok(DefaultMailStatus {
+        supported: crate::default_mail::supported(),
+        is_default: crate::default_mail::is_default(),
+        ask: state.ask_default_mail()?,
+    })
+}
+
+#[tauri::command]
+pub fn set_default_mail_ask(state: AppState<'_>, value: bool) -> Result<()> {
+    state.set_ask_default_mail(value)
+}
+
+#[tauri::command]
+pub fn open_default_apps(app: AppHandle) -> Result<()> {
+    app.opener()
+        .open_url(crate::default_mail::settings_uri(), None::<&str>)
+        .map_err(|e| AppError::Other(format!("could not open the Windows settings: {e}")))
+}
+
+#[tauri::command]
+pub fn take_mailto(pending: State<'_, crate::PendingMailto>) -> Option<crate::default_mail::Mailto> {
+    pending.0.lock().unwrap().take()
+}
+
 #[tauri::command]
 pub fn update_status(app: AppHandle) -> crate::update::UpdateStatus {
     crate::update::status(&app)

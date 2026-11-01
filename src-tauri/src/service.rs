@@ -1010,6 +1010,22 @@ impl App {
             .with(|c| queries::set_setting(c, SETTING_AUTOSTART, if value { "1" } else { "0" }))
     }
 
+    /// Whether redpanda may ask at start to become the default mail app.
+    pub fn ask_default_mail(&self) -> Result<bool> {
+        Ok(self
+            .core
+            .db
+            .with(|c| queries::get_setting(c, SETTING_ASK_DEFAULT_MAIL))?
+            .as_deref()
+            != Some("0"))
+    }
+
+    pub fn set_ask_default_mail(&self, value: bool) -> Result<()> {
+        self.core
+            .db
+            .with(|c| queries::set_setting(c, SETTING_ASK_DEFAULT_MAIL, if value { "1" } else { "0" }))
+    }
+
     /// True the first time it is called, so the hint that redpanda keeps running shows once.
     pub fn take_tray_hint(&self) -> Result<bool> {
         self.core.db.with(|c| {
@@ -1032,6 +1048,7 @@ impl App {
 const SETTING_CLOSE_TO_TRAY: &str = "close_to_tray";
 const SETTING_TRAY_HINT_SHOWN: &str = "tray_hint_shown";
 const SETTING_AUTOSTART: &str = "autostart";
+const SETTING_ASK_DEFAULT_MAIL: &str = "ask_default_mail";
 const SETTING_HTML_VERSION: &str = "html_version";
 /// Raise when the sanitizer changes its output, so stored bodies get cleaned again.
 const HTML_VERSION: &str = "2";
