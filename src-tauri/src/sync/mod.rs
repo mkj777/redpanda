@@ -21,7 +21,7 @@ use crate::core::Core;
 use crate::error::{AppError, Result};
 use crate::model::{SyncState, SyncStatus};
 use crate::store::queries;
-use engine::Conn;
+use engine::{Actions, Conn};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
@@ -81,6 +81,7 @@ enum BgCmd {
 
 struct Workers {
     jobs: mpsc::UnboundedSender<JobMsg>,
+    actions: Arc<Actions>,
     bg: mpsc::UnboundedSender<BgCmd>,
     tasks: Vec<JoinHandle<()>>,
 }
@@ -125,17 +126,17 @@ impl SyncManager {
             statuses: self.statuses.clone(),
             account_id: account_id.to_string(),
         };
+        let actions = Arc::new(Actions::default());
         let tasks = vec![
             tokio::spawn(interactive_worker(
-                self.core.clone(),
-                account_id.to_string(),
+                Conn::new(self.core.clone(), account_id, actions.clone()),
                 jobs_rx,
                 bg_tx.clone(),
                 status.clone(),
             )),
             tokio::spawn(background_worker(
                 self.core.clone(),
-                account_id.to_string(),
+                Conn::new(self.core.clone(), account_id, actions.clone()),
                 bg_rx,
                 status.clone(),
             )),
@@ -147,6 +148,7 @@ impl SyncManager {
         ];
         let workers = Workers {
             jobs: jobs_tx,
+            actions,
             bg: bg_tx,
             tasks,
         };
@@ -180,17 +182,18 @@ impl SyncManager {
 
     /// Queues a job without waiting for the result. Failures are reported via `action:failed`.
     pub fn enqueue(&self, account_id: &str, job: Job) {
-        if let Some(tx) = self.jobs_tx(account_id) {
-            let _ = tx.send(JobMsg { job, reply: None });
+        if let Some(send) = self.sender(account_id) {
+            send(job);
         }
     }
 
     /// Runs a job on the interactive connection and waits for it.
     pub async fn run(&self, account_id: &str, job: Job) -> Result<bool> {
-        let tx = self
+        let (tx, actions) = self
             .jobs_tx(account_id)
             .ok_or_else(|| AppError::NotFound(format!("account {account_id}")))?;
         let (reply, rx) = oneshot::channel();
+        actions.queued();
         tx.send(JobMsg {
             job,
             reply: Some(reply),
@@ -203,14 +206,17 @@ impl SyncManager {
 
     /// A handle for queueing jobs from a spawned task.
     pub fn sender(&self, account_id: &str) -> Option<impl Fn(Job) + Send + 'static> {
-        let tx = self.jobs_tx(account_id)?;
+        let (tx, actions) = self.jobs_tx(account_id)?;
         Some(move |job| {
+            actions.queued();
             let _ = tx.send(JobMsg { job, reply: None });
         })
     }
 
-    fn jobs_tx(&self, account_id: &str) -> Option<mpsc::UnboundedSender<JobMsg>> {
-        self.workers.lock().ok()?.get(account_id).map(|w| w.jobs.clone())
+    fn jobs_tx(&self, account_id: &str) -> Option<(mpsc::UnboundedSender<JobMsg>, Arc<Actions>)> {
+        let map = self.workers.lock().ok()?;
+        let w = map.get(account_id)?;
+        Some((w.jobs.clone(), w.actions.clone()))
     }
 }
 
@@ -276,13 +282,13 @@ async fn run_job(conn: &mut Conn, job: &Job) -> Result<bool> {
 }
 
 async fn interactive_worker(
-    core: Arc<Core>,
-    account_id: String,
+    mut conn: Conn,
     mut rx: mpsc::UnboundedReceiver<JobMsg>,
     bg: mpsc::UnboundedSender<BgCmd>,
     status: StatusHandle,
 ) {
-    let mut conn = Conn::new(core.clone(), &account_id);
+    let core = conn.core.clone();
+    let account_id = conn.account_id.clone();
     while let Some(JobMsg { job, reply }) = rx.recv().await {
         let mut res = run_job(&mut conn, &job).await;
         if res.as_ref().is_err_and(AppError::is_connection_error) {
@@ -309,6 +315,7 @@ async fn interactive_worker(
                 }
             }
         }
+        conn.actions.done();
         if let Some(reply) = reply {
             let _ = reply.send(res);
         }
@@ -318,11 +325,11 @@ async fn interactive_worker(
 
 async fn background_worker(
     core: Arc<Core>,
-    account_id: String,
+    mut conn: Conn,
     mut rx: mpsc::UnboundedReceiver<BgCmd>,
     status: StatusHandle,
 ) {
-    let mut conn = Conn::new(core.clone(), &account_id);
+    let account_id = conn.account_id.clone();
     let mut backoff = Duration::from_secs(5);
     let mut next = Some(BgCmd::SyncAll);
     let mut aliases_read: Option<Instant> = None;

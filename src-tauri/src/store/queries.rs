@@ -571,18 +571,6 @@ pub fn delete_by_uids(c: &Connection, folder_id: i64, uids: &[u32]) -> Result<us
     Ok(n)
 }
 
-/// Marks the given UIDs unread where they are stored as read. Returns how many changed.
-pub fn mark_unseen_uids(c: &Connection, folder_id: i64, uids: &[u32]) -> Result<usize> {
-    let mut n = 0;
-    for uid in uids {
-        n += c.execute(
-            "UPDATE messages SET seen = 0 WHERE folder_id = ?1 AND uid = ?2 AND seen = 1",
-            params![folder_id, uid],
-        )?;
-    }
-    Ok(n)
-}
-
 pub fn delete_messages(c: &Connection, ids: &[i64]) -> Result<()> {
     for id in ids {
         c.execute("DELETE FROM messages WHERE id = ?1", [id])?;

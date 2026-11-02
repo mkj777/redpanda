@@ -1,6 +1,7 @@
 //! IMAP synchronisation of one account: folder sync, lazy bodies and server-side actions.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_imap::types::{Fetch, Flag};
@@ -18,6 +19,8 @@ use crate::unsubscribe;
 pub const INITIAL_WINDOW: u32 = 500;
 /// Unread messages older than the loaded range, stored per folder and sync at most.
 const MAX_OLD_UNREAD: usize = 500;
+/// Messages missing inside the loaded range, fetched again per folder and sync at most.
+const MAX_LOST: usize = 500;
 /// Messages fetched per "load older" request.
 pub const OLDER_BATCH: usize = 200;
 /// Messages per request when reading the unsubscribe headers of already synced mail.
@@ -28,10 +31,43 @@ const HEADER_QUERY: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER
 /// The preview is then filled in when the body is fetched.
 const HEADER_QUERY_NO_PREVIEW: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])";
 
+/// The user's actions on the interactive connection of one account. A sync uses it to tell
+/// whether a message missing here was dropped by mistake or by an action still on its way.
+#[derive(Default)]
+pub struct Actions {
+    pending: AtomicUsize,
+    epoch: AtomicU64,
+}
+
+impl Actions {
+    pub fn queued(&self) {
+        self.pending.fetch_add(1, Ordering::SeqCst);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn done(&self) {
+        self.pending.fetch_sub(1, Ordering::SeqCst);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Taken before reading the server. `None` while an action is pending.
+    pub fn mark(&self) -> Option<u64> {
+        (self.pending.load(Ordering::SeqCst) == 0).then(|| self.epoch.load(Ordering::SeqCst))
+    }
+
+    /// Whether no action was queued or finished since `mark`.
+    pub fn unchanged_since(&self, mark: Option<u64>) -> bool {
+        mark.is_some_and(|m| {
+            self.pending.load(Ordering::SeqCst) == 0 && self.epoch.load(Ordering::SeqCst) == m
+        })
+    }
+}
+
 /// A lazily (re)connected IMAP session for one account.
 pub struct Conn {
     pub core: Arc<Core>,
     pub account_id: String,
+    pub actions: Arc<Actions>,
     session: Option<Session>,
     caps: Caps,
     selected: Option<String>,
@@ -39,10 +75,11 @@ pub struct Conn {
 }
 
 impl Conn {
-    pub fn new(core: Arc<Core>, account_id: &str) -> Conn {
+    pub fn new(core: Arc<Core>, account_id: &str, actions: Arc<Actions>) -> Conn {
         Conn {
             core,
             account_id: account_id.to_string(),
+            actions,
             session: None,
             caps: Caps::default(),
             selected: None,
@@ -187,6 +224,7 @@ pub async fn sync_folder_by_id(conn: &mut Conn, folder_id: i64) -> Result<bool> 
 pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
     let core = conn.core.clone();
     let account = conn.account()?;
+    let actions = conn.actions.mark();
     let mb = conn.select(&folder.path).await?;
     let caps = conn.caps();
     let mut changed = false;
@@ -247,13 +285,12 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
             core.db.with(|c| queries::delete_by_uids(c, folder.id, &gone))?;
             changed = true;
         }
-        // Messages inside the window that are missing here, dropped by mistake before.
-        let mut lost: Vec<u32> = present.iter().copied().filter(|u| !local.contains(u)).collect();
-        if !lost.is_empty() {
-            lost.sort_unstable_by(|a, b| b.cmp(a));
-            lost.truncate(MAX_OLD_UNREAD);
-            let fetches = conn.fetch_headers(uid_set(&lost), true).await?;
-            changed |= store_fetches(&core, &account, folder, &fetches, None)? > 0;
+        // Messages inside the window that are missing here, dropped by mistake before. A
+        // message the user just moved or deleted is missing too until the action reaches the
+        // server, so this only runs when no action was queued while the folder was read.
+        let lost: Vec<u32> = present.iter().copied().filter(|u| !local.contains(u)).collect();
+        if !lost.is_empty() && conn.actions.unchanged_since(actions) {
+            changed |= fetch_newest(conn, folder, lost, MAX_LOST).await?;
         }
     } else {
         // First sync: the newest messages by sequence number.
@@ -274,12 +311,6 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         session.uid_search("UNSEEN").await?
     };
     let unread = unseen.len() as i64;
-    // Unread on the server but read here: a flag change that never reached the server.
-    let unseen_list: Vec<u32> = unseen.iter().copied().collect();
-    changed |= core
-        .db
-        .with(|c| queries::mark_unseen_uids(c, folder.id, &unseen_list))?
-        > 0;
     if mb.exists > 0 {
         changed |= sync_old_unread(conn, folder, &unseen).await?;
     }
@@ -311,7 +342,6 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
 /// unread views show what the folder's unread count says. Runs with the folder selected.
 async fn sync_old_unread(conn: &mut Conn, folder: &FolderRow, unseen: &HashSet<u32>) -> Result<bool> {
     let core = conn.core.clone();
-    let account = conn.account()?;
     let Some(window) = core.db.with(|c| queries::window_start(c, folder.id))? else {
         return Ok(false);
     };
@@ -325,20 +355,20 @@ async fn sync_old_unread(conn: &mut Conn, folder: &FolderRow, unseen: &HashSet<u
         .collect();
     let mut changed = false;
 
-    let mut missing: Vec<u32> = unseen
+    let missing: Vec<u32> = unseen
         .iter()
         .copied()
         .filter(|u| *u < window && !stored.contains(u))
         .collect();
-    missing.sort_unstable_by(|a, b| b.cmp(a));
-    missing.truncate(MAX_OLD_UNREAD);
-    if !missing.is_empty() {
-        let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
-        changed |= store_fetches(&core, &account, folder, &fetches, None)? > 0;
-    }
+    changed |= fetch_newest(conn, folder, missing, MAX_OLD_UNREAD).await?;
 
     // Stored ones that are no longer unread were read or deleted elsewhere (or read here).
-    let check: Vec<u32> = stored.into_iter().filter(|u| !unseen.contains(u)).collect();
+    // Without a modification sequence to go by, all of their flags are read again.
+    let full = folder.highestmodseq.is_none();
+    let check: Vec<u32> = stored
+        .into_iter()
+        .filter(|u| full || !unseen.contains(u))
+        .collect();
     if !check.is_empty() {
         let session = conn.session.as_mut().expect("selected");
         let fetches = collect(session.uid_fetch(uid_set(&check), "(UID FLAGS)").await?).await?;
@@ -351,6 +381,22 @@ async fn sync_old_unread(conn: &mut Conn, folder: &FolderRow, unseen: &HashSet<u
         }
     }
     Ok(changed)
+}
+
+/// Fetches and stores the headers of the newest `cap` of `uids`. Returns `true` if any was new.
+async fn fetch_newest(conn: &mut Conn, folder: &FolderRow, mut uids: Vec<u32>, cap: usize) -> Result<bool> {
+    if uids.is_empty() {
+        return Ok(false);
+    }
+    uids.sort_unstable_by(|a, b| b.cmp(a));
+    uids.truncate(cap);
+    let core = conn.core.clone();
+    let account = conn.account()?;
+    let fetches = conn.fetch_headers(uid_set(&uids), true).await?;
+    if fetches.iter().filter(|f| f.uid.is_some()).count() < uids.len() {
+        tracing::warn!(folder = %folder.path, asked = uids.len(), got = fetches.len(), "server left out messages");
+    }
+    Ok(store_fetches(&core, &account, folder, &fetches, None)? > 0)
 }
 
 fn flags_of(f: &Fetch) -> (bool, bool, bool) {
@@ -566,7 +612,7 @@ pub async fn fetch_body(conn: &mut Conn, message_id: i64) -> Result<()> {
             .await?
             .contains(&msg.uid)
         {
-            return Err(AppError::Imap(format!("no body for message {message_id}")));
+            return Err(AppError::Other(format!("no body for message {message_id}")));
         }
         core.db.with(|c| queries::delete_messages(c, &[message_id]))?;
         core.mail_changed(&msg.account_id, Some(msg.folder_id));
@@ -668,4 +714,27 @@ pub async fn create_folder(conn: &mut Conn, path: &str) -> Result<()> {
     session.create(path).await?;
     let _ = session.subscribe(path).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn actions_block_repairs_while_pending_or_after_a_change() {
+        let a = Actions::default();
+        let mark = a.mark();
+        assert!(a.unchanged_since(mark));
+
+        // Queued while the folder was read.
+        a.queued();
+        assert!(!a.unchanged_since(mark));
+        // Pending when the sync starts.
+        assert!(a.mark().is_none());
+        assert!(!a.unchanged_since(a.mark()));
+        // Finished while the folder was read.
+        a.done();
+        assert!(!a.unchanged_since(mark));
+        assert!(a.unchanged_since(a.mark()));
+    }
 }
