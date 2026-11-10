@@ -1,6 +1,6 @@
 [package]
 name = "redpanda"
-version = "0.1.6"
+version = "0.1.7"
 description = "Minimal desktop mail client for Gmail, Outlook and IMAP"
 authors = ["Maximilian Kielholz"]
 license = "MIT"
