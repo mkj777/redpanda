@@ -29,6 +29,12 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
 const FOLLOW_UP: Duration = Duration::from_secs(15);
 const NO_IDLE_POLL: Duration = Duration::from_secs(2 * 60);
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
+/// The first wait before the IDLE connection is opened again after it ended.
+const IDLE_RETRY: Duration = Duration::from_secs(10);
+/// An IDLE connection that lasted this long counts as working, the next drop retries quickly.
+const IDLE_STABLE: Duration = Duration::from_secs(60);
+/// Starting, ending and checking an IDLE round, each a short command with a short answer.
+const IDLE_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 /// How often a Gmail account re-reads its send-as addresses, after a full sync.
 const ALIAS_REFRESH: Duration = Duration::from_secs(60 * 60);
 
@@ -63,9 +69,19 @@ pub enum Job {
     },
     Append {
         folder_path: String,
-        raw: Vec<u8>,
+        raw: RawMail,
         flags: String,
     },
+}
+
+/// A whole message to upload. Shows only its size when debug-printed, so a failed job never
+/// writes a mail into the log file.
+pub struct RawMail(pub Vec<u8>);
+
+impl std::fmt::Debug for RawMail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{} bytes>", self.0.len())
+    }
 }
 
 struct JobMsg {
@@ -277,7 +293,9 @@ async fn run_job(conn: &mut Conn, job: &Job) -> Result<bool> {
             folder_path,
             raw,
             flags,
-        } => engine::append(conn, folder_path, raw, flags).await.map(|_| true),
+        } => engine::append(conn, folder_path, &raw.0, flags)
+            .await
+            .map(|_| true),
     }
 }
 
@@ -421,12 +439,19 @@ async fn run_bg(conn: &mut Conn, full: bool, folders: &[i64]) -> Result<()> {
 }
 
 async fn idle_worker(core: Arc<Core>, account_id: String, bg: mpsc::UnboundedSender<BgCmd>) {
-    let mut backoff = Duration::from_secs(10);
+    let mut backoff = IDLE_RETRY;
     loop {
+        let started = Instant::now();
         match idle_session(&core, &account_id, &bg).await {
             Ok(()) => return,
             Err(e) => {
-                tracing::debug!(account = %account_id, "idle connection ended: {e}");
+                tracing::info!(account = %account_id, "idle connection ended: {e}");
+                // A connection that held for a while dropped for the usual reasons (network
+                // change, server timeout), not because the server refuses it. Without this the
+                // wait grew with every drop since the start and stayed at five minutes.
+                if started.elapsed() >= IDLE_STABLE {
+                    backoff = IDLE_RETRY;
+                }
                 let wait = if e.is_auth_error() { MAX_BACKOFF } else { backoff };
                 tokio::time::sleep(wait).await;
                 backoff = (backoff * 2).min(MAX_BACKOFF);
@@ -464,6 +489,12 @@ async fn idle_session(core: &Arc<Core>, account_id: &str, bg: &mpsc::UnboundedSe
         }
     }
     imap_conn::select(&mut session, &inbox.path, false).await?;
+    tracing::info!(account = %account_id, "idle connected");
+    // The server only reports news to a session already watching. Mail that arrived while this
+    // connection was down (or before it was first opened) would wait for the next full sync.
+    if bg.send(BgCmd::SyncFolder(inbox.id)).is_err() {
+        return Ok(());
+    }
     loop {
         // Changes the server reported while redpanda was not idling (a message expunged right
         // after a new one arrived) would be lost otherwise, and the stale copy stayed in the list
@@ -472,13 +503,13 @@ async fn idle_session(core: &Arc<Core>, account_id: &str, bg: &mpsc::UnboundedSe
             return Ok(());
         }
         let mut idle = session.idle();
-        idle.init().await?;
+        tokio::time::timeout(IDLE_COMMAND_TIMEOUT, idle.init()).await??;
         let (wait, stop) = idle.wait_with_timeout(IDLE_TIMEOUT);
         let response = wait.await;
         // Dropping the stop source early would interrupt the wait, so keep it alive until here.
         drop(stop);
         let response = response?;
-        session = idle.done().await?;
+        session = tokio::time::timeout(IDLE_COMMAND_TIMEOUT, idle.done()).await??;
         imap_conn::drain_unsolicited(&mut session);
         if let async_imap::extensions::idle::IdleResponse::NewData(_) = response {
             // Let a burst of changes settle before syncing.
@@ -495,7 +526,10 @@ async fn idle_session(core: &Arc<Core>, account_id: &str, bg: &mpsc::UnboundedSe
                 tokio::time::sleep(FOLLOW_UP).await;
                 let _ = later.send(BgCmd::SyncFolder(folder_id));
             });
-        } else if session.noop().await.is_err() {
+        } else if !matches!(
+            tokio::time::timeout(IDLE_COMMAND_TIMEOUT, session.noop()).await,
+            Ok(Ok(_))
+        ) {
             return Err(AppError::Network("idle keepalive failed".into()));
         }
     }

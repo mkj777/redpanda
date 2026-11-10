@@ -19,7 +19,7 @@ use crate::mime;
 use crate::model::*;
 use crate::send::{compose, smtp};
 use crate::store::queries::{self, MessageRef};
-use crate::sync::{imap_conn, Job, SyncManager};
+use crate::sync::{imap_conn, Job, RawMail, SyncManager};
 use crate::unsubscribe::{self, Method as UnsubscribeMethod};
 
 #[derive(Debug, Clone, Serialize)]
@@ -937,7 +937,7 @@ impl App {
                     &account.id,
                     Job::Append {
                         folder_path: sent.path.clone(),
-                        raw,
+                        raw: RawMail(raw),
                         flags: "(\\Seen)".into(),
                     },
                 );

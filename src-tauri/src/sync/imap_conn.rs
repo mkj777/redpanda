@@ -67,9 +67,24 @@ async fn read_greeting<T: ImapIo>(client: &mut async_imap::Client<T>) -> Result<
     }
 }
 
+/// Probes a quiet connection after a minute. One the network dropped without a word (a router
+/// that forgot it, a new IP address, sleep) then fails within about 90 seconds, instead of an
+/// IDLE that never hears of new mail again or a read that waits forever. The probes also keep
+/// routers from forgetting a connection that is only waiting for IDLE news.
+fn keep_alive(tcp: &TcpStream) {
+    let params = socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(60))
+        .with_interval(Duration::from_secs(10))
+        .with_retries(3);
+    if let Err(e) = socket2::SockRef::from(tcp).set_tcp_keepalive(&params) {
+        tracing::warn!("could not enable TCP keepalive: {e}");
+    }
+}
+
 pub async fn connect(cfg: &ServerConfig) -> Result<Client> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((cfg.host.as_str(), cfg.port))).await??;
     tcp.set_nodelay(true).ok();
+    keep_alive(&tcp);
     match cfg.security {
         Security::Tls => {
             let mut client = Client::new(tls_wrap(tcp, &cfg.host).await?);

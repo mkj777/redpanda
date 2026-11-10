@@ -47,7 +47,8 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 - One supervisor task per account, restarted with exponential backoff on errors.
 - Initial sync fetches the newest 500 messages per folder (headers plus a short preview). Older mail loads on demand.
 - Incremental sync checks UIDVALIDITY, fetches new UIDs, refreshes flags with CONDSTORE `CHANGEDSINCE` when available (otherwise for the newest window), and detects deletions within the window.
-- A dedicated connection IDLEs on INBOX. Other folders are polled every 5 minutes and when opened.
+- A dedicated connection IDLEs on INBOX and syncs it once every time it (re)connects, so mail that arrived while it was down shows up too. Other folders are polled every 5 minutes and when opened.
+- All IMAP connections use TCP keepalive (first probe after 60 s), so one the network dropped silently fails within about 90 seconds and reconnects, instead of an IDLE that stops hearing of new mail.
 - Actions (read, star, move, delete, archive) are applied to the DB first, then sent to the server.
 - Folders synced before the unsubscribe column existed read the list headers of their stored messages once (`HEADER.FIELDS`).
 

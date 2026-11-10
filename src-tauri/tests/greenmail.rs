@@ -774,3 +774,65 @@ async fn old_unread_outside_the_window() {
 
     app.remove_account(&account.id).unwrap();
 }
+
+/// New mail shows up through IDLE alone: no manual sync, and the full sync is minutes away.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a GreenMail container"]
+async fn new_mail_arrives_by_idle() {
+    let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let user = format!("u{id}@example.com");
+    let append = |subject: &'static str| {
+        let user = user.clone();
+        async move {
+            let raw = [
+                "From: Sender <sender@example.com>".to_string(),
+                format!("To: {user}"),
+                format!("Subject: {subject}"),
+                format!("Message-ID: <{}@example.com>", uuid::Uuid::new_v4().simple()),
+                "Date: Tue, 10 Nov 2026 09:00:00 +0000".into(),
+                String::new(),
+                "Hello".into(),
+            ]
+            .join("\r\n");
+            let mut s = raw_session(&user).await;
+            s.append("INBOX", None, None, raw.as_bytes()).await.unwrap();
+            let _ = s.logout().await;
+        }
+    };
+    append("Before start").await;
+
+    let core = Arc::new(Core::new(
+        Db::open_in_memory().unwrap(),
+        Secrets::from_key(&[9u8; 32]).unwrap(),
+        OAuthConfig::default(),
+        Arc::new(NoEvents),
+    ));
+    let app = App::new(core.clone());
+    app.add_account(
+        NewAccountInput {
+            email: user.clone(),
+            display_name: "Test User".into(),
+            provider_id: None,
+            username: user.clone(),
+            imap: imap_cfg(),
+            smtp: smtp_cfg(),
+            auth: NewAuth::Password {
+                password: "secret".into(),
+            },
+        },
+        |_| Ok(()),
+    )
+    .await
+    .unwrap();
+    eventually("the first sync", || (inbox(&app).len() == 1).then_some(())).await;
+    // Time for the IDLE connection to open and settle.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    for subject in ["Pushed one", "Pushed two"] {
+        append(subject).await;
+        eventually(subject, || {
+            inbox(&app).iter().any(|m| m.subject == subject).then_some(())
+        })
+        .await;
+    }
+}

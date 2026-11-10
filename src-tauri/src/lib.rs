@@ -93,13 +93,53 @@ pub(crate) fn apply_autostart(app: &AppHandle, on: bool) {
     }
 }
 
-pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("REDPANDA_LOG")
-                .unwrap_or_else(|_| "redpanda_lib=info".into()),
-        )
+/// Days of log files kept, one file per day.
+const LOG_DAYS: usize = 7;
+
+/// Logs to stdout (development) and to a daily file in `logs` next to the database, in local
+/// time. The lines carry account ids, folder names and errors, never mail content or secrets.
+fn log_file(dir: &Path) -> Option<tracing_appender::rolling::RollingFileAppender> {
+    use tracing_appender::rolling::{Builder, Rotation};
+    Builder::new()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("redpanda")
+        .filename_suffix("log")
+        .max_log_files(LOG_DAYS)
+        .build(dir)
+        .ok()
+}
+
+fn init_logging(identifier: &str) {
+    use tracing_subscriber::fmt::time::ChronoLocal;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let filter = tracing_subscriber::EnvFilter::try_from_env("REDPANDA_LOG")
+        .unwrap_or_else(|_| "redpanda_lib=info".into());
+    // The same folder Tauri resolves as the app's local data folder.
+    let file = dirs::data_local_dir().and_then(|d| log_file(&d.join(identifier).join("logs")));
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_timer(ChronoLocal::rfc_3339()))
+        .with(file.map(|w| {
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_timer(ChronoLocal::rfc_3339())
+                .with_writer(w)
+        }))
         .init();
+
+    // Release builds abort on a panic; this keeps its message in the log file.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("panic: {info}");
+        default_hook(info);
+    }));
+}
+
+pub fn run() {
+    let context = tauri::generate_context!();
+    init_logging(&context.config().identifier);
 
     tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol(remote_images::SCHEME, |_ctx, request, responder| {
@@ -242,13 +282,30 @@ pub fn run() {
             commands::mcp_connect_claude,
             commands::mcp_command_line,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running redpanda");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_file_is_created_per_day() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("redpanda-logs-{}", uuid::Uuid::new_v4()));
+        let mut file = log_file(&dir).expect("appender");
+        writeln!(file, "hello").unwrap();
+        file.flush().unwrap();
+        let today = chrono::Utc::now().format("%Y-%m-%d");
+        let written = std::fs::read_to_string(dir.join(format!("redpanda.{today}.log"))).unwrap();
+        assert_eq!(
+            written,
+            "hello
+"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn legacy_database_moves_once() {

@@ -46,7 +46,10 @@ percent-encoding = "2"
 mime_guess = "2"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+tracing-appender = "0.2.5"
+# Already in the tree through tokio; used directly for TCP keepalive on the IMAP connections.
+socket2 = { version = "0.6.5", features = ["all"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"

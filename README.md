@@ -72,7 +72,7 @@ If you build redpanda yourself, the IDs are not included. Register your own clie
 ## Privacy
 
 - Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings. For Gmail accounts it reads the "Send mail as" addresses from your Gmail settings. When you unsubscribe from a newsletter, it also contacts that sender's unsubscribe address.
-- Mail is cached in a local SQLite database in `%LOCALAPPDATA%\io.github.mkj777.redpanda`.
+- Mail is cached in a local SQLite database in `%LOCALAPPDATA%\io.github.mkj777.redpanda`. Log files for the last 7 days are kept in its `logs` folder. They hold account ids, folder names and errors, no mail content.
 - Passwords and tokens are encrypted (ChaCha20-Poly1305) with a key kept in the Windows Credential Manager. They never reach the user interface or log files. See [ADR 0002](docs/adr/0002-secrets-encrypted-in-sqlite.md).
 - With access for Claude Code switched on, Claude Code can read and send mail through redpanda's local MCP server. What Claude reads goes to Anthropic like everything else in a Claude Code session. It's off by default.
 - No telemetry. The update check only downloads `latest.json` from GitHub.
