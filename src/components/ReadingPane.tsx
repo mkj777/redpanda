@@ -15,7 +15,7 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { api, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
@@ -97,24 +97,47 @@ function RemoteBar({ msg, onAllow }: { msg: MessageDetail; onAllow: () => void }
   );
 }
 
+/** Shown only when loading takes long enough to notice, so a quick open never flashes it. */
+function Loading() {
+  const { t } = useTranslation();
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShow(true), 250);
+    return () => clearTimeout(timer);
+  }, []);
+  if (!show) return null;
+  return (
+    <div className="flex items-center gap-2 py-6 text-sm text-muted">
+      <Spinner className="size-3.5" />
+      {t("reader.loading")}
+    </div>
+  );
+}
+
 export function MessageView({
   summary,
   isLast,
   unsubscribeLink = true,
+  onReady,
 }: {
   summary: MessageSummary;
   isLast: boolean;
   /** Off where the page around it offers unsubscribing already. */
   unsubscribeLink?: boolean;
+  /** Called once the message can be shown in one piece. */
+  onReady?: (id: number) => void;
 }) {
   const { t, i18n } = useTranslation();
   const revision = useMail((s) => s.revision);
   const [msg, setMsg] = useState<MessageDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allowed, setAllowed] = useState(false);
+  const [bodyShown, setBodyShown] = useState(false);
   const autoLoad = useSettings((s) => s.autoLoadImages);
   const inJunk = useMail((s) => s.folders.find((f) => f.id === summary.folderId)?.role === "junk");
   const remote = allowed || (autoLoad && !inJunk);
+  // Plain text is laid out with the rest, HTML once its frame has measured the mail.
+  const ready = error !== null || (msg !== null && (!msg.html || bodyShown));
 
   useEffect(() => {
     let alive = true;
@@ -134,42 +157,49 @@ export function MessageView({
     // Refetch when the list refreshes, flags may have changed.
   }, [summary.id, revision]);
 
-  if (error) return <div className="py-6 text-sm text-danger">{error}</div>;
-  if (!msg)
-    return (
-      <div className="flex items-center gap-2 py-6 text-sm text-muted">
-        <Spinner className="size-3.5" />
-        {t("reader.loading")}
-      </div>
-    );
+  useEffect(() => {
+    if (ready) onReady?.(summary.id);
+  }, [ready, onReady, summary.id]);
 
-  const recipients = [...msg.to, ...msg.cc].map((a) => a.email).join(", ");
+  if (error) return <div className="py-6 text-sm text-danger">{error}</div>;
+
+  const recipients = msg ? [...msg.to, ...msg.cc].map((a) => a.email).join(", ") : "";
 
   return (
-    <article className="py-4">
-      <header className="mb-4 flex items-start gap-3">
-        <Avatar address={msg.from} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-semibold">{displayName(msg.from) || t("list.unknownSender")}</span>
-            {msg.from?.name && <span className="selectable truncate text-xs text-muted">{msg.from.email}</span>}
-            {unsubscribeLink && <UnsubscribeLink msg={msg} />}
-          </div>
-          <div className="selectable truncate text-xs text-muted" title={recipients}>
-            {t("reader.to", { list: recipients || t("list.noRecipient") })}
-          </div>
-        </div>
-        <span className="shrink-0 pt-0.5 text-xs text-muted">{fullDate(msg.date, i18n.language)}</span>
-        {!isLast && (
-          <IconButton label={t("action.reply")} className="-mt-1 size-7" onClick={() => reply("reply", msg)}>
-            <Reply size={14} />
-          </IconButton>
-        )}
-      </header>
-      {msg.html && msg.hasRemoteContent && !remote && <RemoteBar msg={msg} onAllow={() => setAllowed(true)} />}
-      {msg.html ? <HtmlBody html={msg.html} allowRemote={remote} /> : <TextBody text={msg.text ?? ""} />}
-      <Attachments msg={msg} />
-    </article>
+    <div className="relative">
+      {!ready && <Loading />}
+      {msg && (
+        // Laid out while hidden, so the header and the whole body appear together.
+        <article className={cn("py-4", !ready && "invisible absolute inset-x-0")}>
+          <header className="mb-4 flex items-start gap-3">
+            <Avatar address={msg.from} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="truncate text-sm font-semibold">{displayName(msg.from) || t("list.unknownSender")}</span>
+                {msg.from?.name && <span className="selectable truncate text-xs text-muted">{msg.from.email}</span>}
+                {unsubscribeLink && <UnsubscribeLink msg={msg} />}
+              </div>
+              <div className="selectable truncate text-xs text-muted" title={recipients}>
+                {t("reader.to", { list: recipients || t("list.noRecipient") })}
+              </div>
+            </div>
+            <span className="shrink-0 pt-0.5 text-xs text-muted">{fullDate(msg.date, i18n.language)}</span>
+            {!isLast && (
+              <IconButton label={t("action.reply")} className="-mt-1 size-7" onClick={() => reply("reply", msg)}>
+                <Reply size={14} />
+              </IconButton>
+            )}
+          </header>
+          {msg.html && msg.hasRemoteContent && !remote && <RemoteBar msg={msg} onAllow={() => setAllowed(true)} />}
+          {msg.html ? (
+            <HtmlBody html={msg.html} allowRemote={remote} onReady={() => setBodyShown(true)} />
+          ) : (
+            <TextBody text={msg.text ?? ""} />
+          )}
+          <Attachments msg={msg} />
+        </article>
+      )}
+    </div>
   );
 }
 
@@ -220,39 +250,7 @@ function MoveMenu({ summary }: { summary: MessageSummary }) {
 
 export function ReadingPane() {
   const { t } = useTranslation();
-  const selectedId = useMail((s) => s.selectedId);
   const summary = useMail((s) => s.messages.find((m) => m.id === s.selectedId) ?? null);
-  const threads = useSettings((s) => s.threads);
-  const autoLoad = useSettings((s) => s.autoLoadImages);
-  // In the unread view a read message drops out of the list, so it is only marked once the user moves on.
-  const markOnLeave = useMail((s) => s.view.kind === "unified" && s.view.which === "unread");
-  const [thread, setThread] = useState<MessageSummary[]>([]);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-
-  const threadKey = summary ? `${summary.accountId}:${summary.threadKey}:${summary.threadCount}` : null;
-  useEffect(() => {
-    if (!summary) return;
-    let alive = true;
-    const load = threads && summary.threadCount > 1 ? api.getThread(summary.id) : Promise.resolve([summary]);
-    load
-      .then((list) => {
-        if (!alive) return;
-        const msgs = list.length ? list : [summary];
-        setThread(msgs);
-        const unread = msgs.filter((m) => !m.seen).map((m) => m.id);
-        setExpanded(new Set([msgs[msgs.length - 1].id, ...unread]));
-      })
-      .catch(reportError);
-    const timer = markOnLeave ? undefined : setTimeout(() => markSeen(summary), 400);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-      // Runs on every reload of the conversation too, but marks only when another message (or none) is selected.
-      if (markOnLeave && useMail.getState().selectedId !== summary.id) void markSeen(summary);
-    };
-    // Reload on a different selection or a changed conversation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, threadKey, threads]);
 
   if (!summary) {
     return (
@@ -264,8 +262,59 @@ export function ReadingPane() {
       </section>
     );
   }
+  // A fresh conversation per selection, so nothing of the previous one shows while this one loads.
+  return <Conversation key={summary.id} summary={summary} />;
+}
 
-  const latest = thread[thread.length - 1] ?? summary;
+function Conversation({ summary }: { summary: MessageSummary }) {
+  const { t } = useTranslation();
+  const threads = useSettings((s) => s.threads);
+  const autoLoad = useSettings((s) => s.autoLoadImages);
+  // In the unread view a read message drops out of the list, so it is only marked once the user moves on.
+  const markOnLeave = useMail((s) => s.view.kind === "unified" && s.view.which === "unread");
+  const [thread, setThread] = useState<MessageSummary[] | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [ready, setReady] = useState<Set<number>>(new Set());
+  const [revealed, setRevealed] = useState(false);
+  const onReady = useCallback((id: number) => setReady((r) => (r.has(id) ? r : new Set(r).add(id))), []);
+  // The subject and every opened message appear together. Once shown, a message opened later
+  // or a reply that arrives fills in on its own instead of hiding everything again.
+  const allReady = thread !== null && thread.every((m) => !expanded.has(m.id) || ready.has(m.id));
+  const shown = revealed || allReady;
+  useEffect(() => {
+    if (allReady) setRevealed(true);
+  }, [allReady]);
+
+  const threadKey = `${summary.threadKey}:${summary.threadCount}`;
+  useEffect(() => {
+    let alive = true;
+    const load = threads && summary.threadCount > 1 ? api.getThread(summary.id) : Promise.resolve([summary]);
+    load
+      .catch((e) => {
+        reportError(e);
+        return [summary];
+      })
+      .then((list) => {
+        if (!alive) return;
+        const msgs = list.length ? list : [summary];
+        setThread(msgs);
+        const unread = msgs.filter((m) => !m.seen).map((m) => m.id);
+        setExpanded(new Set([msgs[msgs.length - 1].id, ...unread]));
+      });
+    const timer = markOnLeave ? undefined : setTimeout(() => markSeen(summary), 400);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      // Runs on every reload of the conversation too, but marks only when another message (or none) is selected.
+      if (markOnLeave && useMail.getState().selectedId !== summary.id) void markSeen(summary);
+    };
+    // Reload on a changed conversation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadKey, threads]);
+
+  const list = thread ?? [];
+  const latest = list[list.length - 1] ?? summary;
+
   return (
     <section className="flex h-full flex-col bg-bg">
       <div className="flex h-12 shrink-0 items-center gap-0.5 border-b border-line bg-surface px-2">
@@ -310,17 +359,21 @@ export function ReadingPane() {
         </IconButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[860px] px-6 pb-10">
-          <h1 className="selectable pt-5 text-lg font-semibold leading-snug">{summary.subject || t("list.noSubject")}</h1>
-          {thread.map((m, i) =>
-            expanded.has(m.id) ? (
-              <div key={m.id} className={cn(i < thread.length - 1 && "border-b border-line")}>
-                <MessageView summary={m} isLast={i === thread.length - 1} />
-              </div>
-            ) : (
-              <CollapsedMessage key={m.id} m={m} onOpen={() => setExpanded(new Set([...expanded, m.id]))} />
-            ),
-          )}
+        <div className="relative mx-auto max-w-[860px] px-6 pb-10">
+          {!shown && <Loading />}
+          {/* Laid out while hidden, so the iframes measure the mails at their real width. */}
+          <div className={cn(!shown && "invisible absolute inset-x-6 top-0")}>
+            <h1 className="selectable pt-5 text-lg font-semibold leading-snug">{summary.subject || t("list.noSubject")}</h1>
+            {list.map((m, i) =>
+              expanded.has(m.id) ? (
+                <div key={m.id} className={cn(i < list.length - 1 && "border-b border-line")}>
+                  <MessageView summary={m} isLast={i === list.length - 1} onReady={onReady} />
+                </div>
+              ) : (
+                <CollapsedMessage key={m.id} m={m} onOpen={() => setExpanded(new Set([...expanded, m.id]))} />
+              ),
+            )}
+          </div>
         </div>
       </div>
     </section>

@@ -32,22 +32,47 @@ pre{white-space:pre-wrap}
  * Sanitized mail HTML in a sandboxed iframe: no scripts (no `allow-scripts`), remote content
  * blocked by CSP until allowed. `allow-same-origin` lets the parent measure the height and
  * intercept link clicks; without `allow-scripts` the mail itself can still run nothing.
+ *
+ * `onReady` fires once the text is laid out and measured, before images finish loading, so the
+ * caller can show the mail in one piece instead of a short frame that grows.
  */
-export function HtmlBody({ html, allowRemote }: { html: string; allowRemote: boolean }) {
+export function HtmlBody({
+  html,
+  allowRemote,
+  onReady,
+}: {
+  html: string;
+  allowRemote: boolean;
+  onReady?: () => void;
+}) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(120);
   const doc = useMemo(() => srcdoc(html, allowRemote), [html, allowRemote]);
+  const ready = useRef(onReady);
+  ready.current = onReady;
+  // The document measured last, so a new one (images allowed) is told apart from the old.
+  const shown = useRef<Document | null>(null);
 
   useEffect(() => {
     const frame = ref.current;
     if (!frame) return;
     let observer: ResizeObserver | null = null;
-    const onLoad = () => {
+    let poll = 0;
+    // Never leave a mail hidden, should the document not turn up as expected.
+    const fallback = setTimeout(() => ready.current?.(), 2000);
+    const attach = () => {
       const d = frame.contentDocument;
-      if (!d) return;
+      // Until the new document exists, the frame still holds the blank or the previous one.
+      if (!d || d === shown.current || d.URL !== "about:srcdoc" || d.readyState === "loading") return false;
+      shown.current = d;
+      cancelAnimationFrame(poll);
+      clearTimeout(fallback);
       // +2 for the iframe's own border.
       const measure = () => setHeight(Math.max(60, d.documentElement.scrollHeight + 2));
       measure();
+      ready.current?.();
+      observer?.disconnect();
+      // Images that arrive later grow the mail.
       observer = new ResizeObserver(measure);
       observer.observe(d.documentElement);
       d.addEventListener("click", (e) => {
@@ -57,10 +82,19 @@ export function HtmlBody({ html, allowRemote }: { html: string; allowRemote: boo
         const href = a.getAttribute("href");
         if (href) handleLink(href);
       });
+      return true;
     };
-    frame.addEventListener("load", onLoad);
+    // The load event waits for every image, the parsed text is there much earlier.
+    const check = () => {
+      if (!attach()) poll = requestAnimationFrame(check);
+    };
+    check();
+    // Animation frames pause while the window is hidden, the load event still comes.
+    frame.addEventListener("load", attach);
     return () => {
-      frame.removeEventListener("load", onLoad);
+      cancelAnimationFrame(poll);
+      clearTimeout(fallback);
+      frame.removeEventListener("load", attach);
       observer?.disconnect();
     };
   }, [doc]);
