@@ -55,8 +55,15 @@ pub(crate) struct PendingMailto(pub std::sync::Mutex<Option<default_mail::Mailto
 
 /// Passed by the Windows autostart entry.
 const AUTOSTART_ARG: &str = "--autostart";
+/// Passed by the bridge for Claude Desktop when it starts redpanda.
+pub(crate) const BACKGROUND_ARG: &str = "--background";
 
-const DB_FILES: [&str; 3] = ["redpanda.db", "redpanda.db-wal", "redpanda.db-shm"];
+/// A start with Windows or for Claude Desktop stays in the notification area.
+fn starts_hidden(args: &[String]) -> bool {
+    args.iter().any(|a| a == AUTOSTART_ARG || a == BACKGROUND_ARG)
+}
+
+pub(crate) const DB_FILES: [&str; 3] = ["redpanda.db", "redpanda.db-wal", "redpanda.db-shm"];
 
 /// Versions before 0.1.0 kept the database in `%LOCALAPPDATA%\redpanda`, which is also where the
 /// installer puts the program. Moves it once into the app's own data folder.
@@ -139,6 +146,10 @@ fn init_logging(identifier: &str) {
 
 pub fn run() {
     let context = tauri::generate_context!();
+    // Claude Desktop starts redpanda this way to reach the running app, see mcp::bridge.
+    if std::env::args().any(|a| a == mcp::bridge::ARG) {
+        std::process::exit(mcp::bridge::run(&context.config().identifier));
+    }
     init_logging(&context.config().identifier);
 
     tauri::Builder::default()
@@ -150,7 +161,9 @@ pub fn run() {
         // First, so a second start only brings the running window back and never opens the
         // database a second time.
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            tray::show_main(app);
+            if !starts_hidden(&args) {
+                tray::show_main(app);
+            }
             if let Some(m) = default_mail::from_args(&args) {
                 let _ = app.emit("ui:mailto", m);
             }
@@ -198,7 +211,7 @@ pub fn run() {
             let settings = app.state::<Arc<App>>().app_settings()?;
             apply_autostart(app.handle(), settings.autostart);
             // Hidden in the config, so a start with Windows never flashes the window.
-            if !std::env::args().any(|a| a == AUTOSTART_ARG) {
+            if !starts_hidden(&std::env::args().collect::<Vec<_>>()) {
                 tray::show_main(app.handle());
             }
             // A mailto: link that started redpanda, picked up by the window once it is ready.
@@ -280,6 +293,7 @@ pub fn run() {
             commands::mcp_reveal_key,
             commands::mcp_rotate_key,
             commands::mcp_connect_claude,
+            commands::mcp_connect_claude_desktop,
             commands::mcp_command_line,
         ])
         .run(context)

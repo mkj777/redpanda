@@ -19,7 +19,7 @@ A minimal desktop mail client for Windows. Gmail, Outlook/Microsoft 365 and any 
 - **Newsletters**: "Unsubscribe" next to the sender like in Gmail, with one click where the sender supports it and otherwise by email or on its page, plus a view of every newsletter sender and how often it writes
 - **Search** over everything that has been synced, instantly (SQLite FTS5)
 - **Keyboard**: `j`/`k` to move, `c` compose, `r`/`a`/`f` reply, reply all, forward, `e` archive, `#` delete, `s` star, `u` read/unread, `/` search
-- **Claude Code**: an optional MCP server lets [Claude Code](https://claude.com/claude-code) read, search and send your mail through redpanda (below)
+- **Claude Code and Claude Desktop**: an optional MCP server lets [Claude Code](https://claude.com/claude-code) and Claude Desktop read, search and send your mail through redpanda (below)
 - English and German, light and dark theme following Windows
 
 ## Claude Code
@@ -30,9 +30,11 @@ redpanda can serve as an MCP server, so Claude Code reads and writes mail for yo
 2. Click "Add to Claude Code". Without the `claude` command on your PATH, copy the command and run it in a terminal.
 3. Start a new Claude Code session and check with `/mcp` that redpanda is connected.
 
-The tools: `list_accounts`, `list_folders`, `list_messages`, `search_messages`, `read_message`, `read_thread`, `get_attachment`, `create_draft` and `send_mail`. Reading through Claude doesn't mark mail as read. Claude Code asks before every tool call it hasn't been allowed; keep `send_mail` on asking, so you see every email before it goes out.
+For Claude Desktop, click "Add to Claude Desktop" in the same place and restart Claude Desktop. It then starts `redpanda.exe --mcp-stdio`, a small bridge that passes its messages on to the running redpanda and starts redpanda in the notification area when it isn't running. The bridge reads the key itself, so it isn't written into Claude Desktop's config.
 
-The server listens on `127.0.0.1` only, needs the key shown in the settings, and only runs while redpanda does (also in the notification area). Details in [ADR 0008](docs/adr/0008-mcp-server.md).
+The tools: `list_accounts`, `list_folders`, `list_messages`, `search_messages`, `read_message`, `read_thread`, `get_attachment`, `create_draft` and `send_mail`. Reading through Claude doesn't mark mail as read. Claude Code and Claude Desktop ask before every tool call they haven't been allowed; keep `send_mail` on asking, so you see every email before it goes out.
+
+The server listens on `127.0.0.1` only, needs the key shown in the settings, and only runs while redpanda does (also in the notification area). Details in [ADR 0008](docs/adr/0008-mcp-server.md) and, for Claude Desktop, [ADR 0010](docs/adr/0010-claude-desktop-bridge.md).
 
 ## Install
 
@@ -74,7 +76,7 @@ If you build redpanda yourself, the IDs are not included. Register your own clie
 - Everything runs on your computer. Sign-in tokens stay on your machine; the bundled client IDs only identify the app to Google and Microsoft. redpanda talks only to your mail servers, to Google/Microsoft during sign-in, and, while you set up an account, to Thunderbird's autoconfig service and your mail domain's own autoconfig address to look up server settings. For Gmail accounts it reads the "Send mail as" addresses from your Gmail settings. When you unsubscribe from a newsletter, it also contacts that sender's unsubscribe address.
 - Mail is cached in a local SQLite database in `%LOCALAPPDATA%\io.github.mkj777.redpanda`. Log files for the last 7 days are kept in its `logs` folder. They hold account ids, folder names and errors, no mail content.
 - Passwords and tokens are encrypted (ChaCha20-Poly1305) with a key kept in the Windows Credential Manager. They never reach the user interface or log files. See [ADR 0002](docs/adr/0002-secrets-encrypted-in-sqlite.md).
-- With access for Claude Code switched on, Claude Code can read and send mail through redpanda's local MCP server. What Claude reads goes to Anthropic like everything else in a Claude Code session. It's off by default.
+- With access for Claude Code switched on, Claude Code and Claude Desktop can read and send mail through redpanda's local MCP server. What Claude reads goes to Anthropic like everything else in a Claude conversation. It's off by default.
 - No telemetry. The update check only downloads `latest.json` from GitHub.
 
 ## Development

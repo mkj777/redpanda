@@ -3,9 +3,12 @@
 //!
 //! It listens on 127.0.0.1 only, wants the key from the settings as a bearer token, accepts only
 //! loopback `Host` headers and refuses requests that carry an `Origin`, so web pages can't reach it.
+//! Claude Desktop reaches it through [`bridge`].
 
+pub mod bridge;
 pub mod tools;
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use axum::extract::{Request, State};
@@ -21,6 +24,7 @@ use subtle::ConstantTimeEq;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
+use crate::accounts::secrets::Secrets;
 use crate::error::{AppError, Result};
 use crate::service::App;
 use crate::store::queries;
@@ -29,6 +33,8 @@ pub const DEFAULT_PORT: u16 = 47821;
 const SETTING_ENABLED: &str = "mcp_enabled";
 const SETTING_PORT: &str = "mcp_port";
 const SETTING_KEY: &str = "mcp_key";
+/// The file Claude Desktop reads its local MCP servers from.
+const DESKTOP_CONFIG: &str = "claude_desktop_config.json";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +48,9 @@ pub struct McpStatus {
     pub key_masked: Option<String>,
     /// Whether the `claude` command is installed, for the button that registers redpanda.
     pub claude_available: bool,
+    /// Whether Claude Desktop keeps its data on this computer, for the button that registers
+    /// redpanda there.
+    pub claude_desktop_available: bool,
     pub url: String,
 }
 
@@ -81,31 +90,14 @@ impl Mcp {
     }
 
     pub fn port(&self) -> u16 {
-        self.setting(SETTING_PORT)
-            .ok()
-            .flatten()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(DEFAULT_PORT)
+        port_from(self.setting(SETTING_PORT).ok().flatten())
     }
 
     /// The stored key, encrypted like the account secrets. `None` before the first start.
     fn stored_key(&self) -> Result<Option<String>> {
-        let Some(stored) = self.setting(SETTING_KEY)? else {
-            return Ok(None);
-        };
-        let b64 = base64::engine::general_purpose::STANDARD;
-        let (nonce, ciphertext) = stored
-            .split_once(':')
-            .ok_or_else(|| AppError::Secrets("bad MCP key".into()))?;
-        let decode = |s: &str| b64.decode(s).map_err(|e| AppError::Secrets(e.to_string()));
-        let plain = self
-            .app
-            .core
-            .secrets
-            .decrypt(&decode(ciphertext)?, &decode(nonce)?)?;
-        String::from_utf8(plain)
-            .map(Some)
-            .map_err(|e| AppError::Secrets(e.to_string()))
+        self.setting(SETTING_KEY)?
+            .map(|stored| decrypt_key(&self.app.core.secrets, &stored))
+            .transpose()
     }
 
     fn new_key(&self) -> Result<String> {
@@ -156,6 +148,7 @@ impl Mcp {
             error: self.error.lock().ok().and_then(|e| e.clone()),
             key_masked: self.stored_key().ok().flatten().map(|k| mask(&k)),
             claude_available: claude_command().is_some(),
+            claude_desktop_available: claude_desktop_config().is_some(),
             url: url(port),
         }
     }
@@ -274,6 +267,19 @@ impl Mcp {
         .map_err(|e| AppError::Other(e.to_string()))?
     }
 
+    /// Registers the bridge in Claude Desktop, replacing an earlier entry. The entry holds only
+    /// the path of redpanda: the bridge reads port and key itself.
+    pub async fn connect_claude_desktop(&self) -> Result<()> {
+        let config = claude_desktop_config()
+            .ok_or_else(|| AppError::Invalid("Claude Desktop was not found".into()))?;
+        let exe = std::env::current_exe().map_err(|e| AppError::Other(e.to_string()))?;
+        tokio::task::spawn_blocking(move || add_to_desktop_config(&config, &exe))
+            .await
+            .map_err(|e| AppError::Other(e.to_string()))??;
+        tracing::info!("added redpanda to Claude Desktop");
+        Ok(())
+    }
+
     fn changed(&self) {
         let enabled = self.enabled();
         self.app
@@ -285,6 +291,77 @@ impl Mcp {
 
 fn url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/mcp")
+}
+
+fn port_from(setting: Option<String>) -> u16 {
+    setting.and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT)
+}
+
+/// The key as `app_settings` keeps it: nonce and ciphertext in Base64, split by a colon.
+fn decrypt_key(secrets: &Secrets, stored: &str) -> Result<String> {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let (nonce, ciphertext) = stored
+        .split_once(':')
+        .ok_or_else(|| AppError::Secrets("bad MCP key".into()))?;
+    let decode = |s: &str| b64.decode(s).map_err(|e| AppError::Secrets(e.to_string()));
+    let plain = secrets.decrypt(&decode(ciphertext)?, &decode(nonce)?)?;
+    String::from_utf8(plain).map_err(|e| AppError::Secrets(e.to_string()))
+}
+
+/// Claude Desktop's config file in the data folder it used last. The Store version keeps its
+/// data in `%LOCALAPPDATA%\Claude-Data\<package>`, the installer version in `%APPDATA%\Claude`.
+fn claude_desktop_config() -> Option<PathBuf> {
+    let mut folders = Vec::new();
+    if let Some(Ok(entries)) = dirs::data_local_dir().map(|d| std::fs::read_dir(d.join("Claude-Data"))) {
+        folders.extend(entries.flatten().map(|e| e.path()));
+    }
+    folders.extend(dirs::config_dir().map(|d| d.join("Claude")));
+    latest_claude_folder(folders).map(|d| d.join(DESKTOP_CONFIG))
+}
+
+/// Of the folders Claude Desktop may use, the one it wrote its own settings (`config.json`) to
+/// last. A folder an uninstalled version left behind has older ones.
+fn latest_claude_folder(folders: Vec<PathBuf>) -> Option<PathBuf> {
+    folders
+        .into_iter()
+        .filter_map(|d| {
+            let written = std::fs::metadata(d.join("config.json")).and_then(|m| m.modified());
+            Some((written.ok()?, d))
+        })
+        .max_by_key(|(written, _)| *written)
+        .map(|(_, d)| d)
+}
+
+/// Sets the `redpanda` entry under `mcpServers` and keeps everything else in the file.
+fn add_to_desktop_config(path: &Path, exe: &Path) -> Result<()> {
+    let invalid = || AppError::Other(format!("{} is not a JSON object", path.display()));
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(AppError::Other(e.to_string())),
+    };
+    let text = text.trim_start_matches('\u{feff}');
+    let mut config = if text.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str(text).map_err(|_| invalid())?
+    };
+    let servers = config
+        .as_object_mut()
+        .ok_or_else(invalid)?
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(invalid)?;
+    servers.insert(
+        "redpanda".into(),
+        serde_json::json!({ "command": exe.to_string_lossy(), "args": [bridge::ARG] }),
+    );
+    // Written next to it and renamed, so Claude Desktop never reads half a file.
+    let partial = path.with_extension("json.partial");
+    std::fs::write(&partial, serde_json::to_string_pretty(&config)?)
+        .and_then(|()| std::fs::rename(&partial, path))
+        .map_err(|e| AppError::Other(e.to_string()))
 }
 
 fn mask(key: &str) -> String {
@@ -422,5 +499,78 @@ mod tests {
     #[test]
     fn masks_all_but_the_end() {
         assert_eq!(mask("rp_0123456789abcdef"), "rp_••••••••••••cdef");
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("redpanda-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn key_round_trip() {
+        let secrets = Secrets::from_key(&[3u8; 32]).unwrap();
+        let (ciphertext, nonce) = secrets.encrypt(b"rp_abc").unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let stored = format!("{}:{}", b64.encode(nonce), b64.encode(ciphertext));
+        assert_eq!(decrypt_key(&secrets, &stored).unwrap(), "rp_abc");
+        assert!(decrypt_key(&secrets, "no colon").is_err());
+        assert_eq!(port_from(Some("50000".into())), 50000);
+        assert_eq!(port_from(Some("x".into())), DEFAULT_PORT);
+        assert_eq!(port_from(None), DEFAULT_PORT);
+    }
+
+    #[test]
+    fn claude_desktop_entry_keeps_the_rest_of_the_file() {
+        let dir = temp_dir("desktop-config");
+        let path = dir.join(DESKTOP_CONFIG);
+        let exe = Path::new(r"C:\Apps\redpanda\redpanda.exe");
+        let entry =
+            serde_json::json!({ "command": r"C:\Apps\redpanda\redpanda.exe", "args": ["--mcp-stdio"] });
+
+        // Missing: created with just the entry.
+        add_to_desktop_config(&path, exe).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!({ "mcpServers": { "redpanda": entry } })
+        );
+
+        // Existing, with a BOM: other servers, settings and an old entry.
+        std::fs::write(
+            &path,
+            "\u{feff}{\"preferences\":{\"menuBarEnabled\":false},\"mcpServers\":{\"other\":{\"command\":\"npx\"},\"redpanda\":{\"command\":\"old.exe\"}}}",
+        )
+        .unwrap();
+        add_to_desktop_config(&path, exe).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["preferences"]["menuBarEnabled"], false);
+        assert_eq!(written["mcpServers"]["other"]["command"], "npx");
+        assert_eq!(written["mcpServers"]["redpanda"], entry);
+
+        // A file that is not a JSON object stays as it is.
+        std::fs::write(&path, "[1, 2").unwrap();
+        assert!(add_to_desktop_config(&path, exe).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "[1, 2");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn claude_desktop_folder_used_last_wins() {
+        let root = temp_dir("desktop-folders");
+        let (old, new, empty) = (root.join("old"), root.join("new"), root.join("empty"));
+        for (dir, age) in [(&old, 3600), (&new, 60)] {
+            std::fs::create_dir_all(dir).unwrap();
+            let file = std::fs::File::create(dir.join("config.json")).unwrap();
+            file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age))
+                .unwrap();
+        }
+        std::fs::create_dir_all(&empty).unwrap();
+        let picked = latest_claude_folder(vec![old.clone(), empty.clone(), new.clone()]);
+        assert_eq!(picked, Some(new));
+        assert_eq!(latest_claude_folder(vec![empty]), None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

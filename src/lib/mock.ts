@@ -470,6 +470,7 @@ function mcpStatus() {
     error: null,
     keyMasked: mcp.keyCreated ? `rp_••••••••••••${mcp.key.slice(-4)}` : null,
     claudeAvailable: true,
+    claudeDesktopAvailable: true,
     url: `http://127.0.0.1:${mcp.port}/mcp`,
   };
 }
@@ -759,6 +760,7 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       mcp.key = `rp_${Math.random().toString(16).slice(2).padEnd(64, "0")}`;
       return mcpStatus();
     case "mcp_connect_claude":
+    case "mcp_connect_claude_desktop":
       return null;
     case "mcp_command_line":
       return `claude mcp add --scope user --transport http redpanda http://127.0.0.1:${mcp.port}/mcp --header "Authorization: Bearer ${mcp.key}"`;

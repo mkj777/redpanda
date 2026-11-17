@@ -287,6 +287,7 @@ export const api = {
   mcpRevealKey: () => call<string>("mcp_reveal_key"),
   mcpRotateKey: () => call<McpStatus>("mcp_rotate_key"),
   mcpConnectClaude: () => call<void>("mcp_connect_claude"),
+  mcpConnectClaudeDesktop: () => call<void>("mcp_connect_claude_desktop"),
   mcpCommandLine: () => call<string>("mcp_command_line"),
 };
 
@@ -299,6 +300,7 @@ export interface McpStatus {
   error: string | null;
   keyMasked: string | null;
   claudeAvailable: boolean;
+  claudeDesktopAvailable: boolean;
   url: string;
 }
 

@@ -338,6 +338,11 @@ pub async fn mcp_connect_claude(mcp: McpState<'_>) -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn mcp_connect_claude_desktop(mcp: McpState<'_>) -> Result<()> {
+    mcp.connect_claude_desktop().await
+}
+
+#[tauri::command]
 pub fn mcp_command_line(mcp: McpState<'_>) -> Result<String> {
     mcp.claude_command_line()
 }

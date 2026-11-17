@@ -113,6 +113,23 @@ export function ClaudeSettings() {
             {!status.claudeAvailable && <p className="text-xs text-muted">{t("claude.notInstalled")}</p>}
           </div>
 
+          <div className="flex flex-col gap-2 rounded-md border border-line p-3">
+            <div className="text-[13px] font-medium">{t("claude.desktopTitle")}</div>
+            <p className="text-xs text-muted">{t("claude.desktopText")}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busy || !status.claudeDesktopAvailable}
+                title={status.claudeDesktopAvailable ? undefined : t("claude.desktopNotInstalled")}
+                onClick={() => void run(() => api.mcpConnectClaudeDesktop(), t("claude.desktopConnected"))}
+              >
+                {t("claude.desktopConnect")}
+              </Button>
+            </div>
+            {!status.claudeDesktopAvailable && <p className="text-xs text-muted">{t("claude.desktopNotInstalled")}</p>}
+          </div>
+
           <Field label={t("claude.key")}>
             <div className="flex items-center gap-1">
               <code className="h-8 min-w-0 flex-1 truncate rounded-md border border-line-strong bg-bg px-2.5 font-mono text-xs leading-8">

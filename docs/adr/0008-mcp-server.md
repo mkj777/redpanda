@@ -29,6 +29,7 @@ Two ways were possible: a separate program Claude Code starts, using the same da
 ## Consequences
 
 - Claude Code reaches mail only while redpanda runs.
+- Claude Desktop can't reach a server on `127.0.0.1` by URL. It goes through a stdio bridge, see [ADR 0010](0010-claude-desktop-bridge.md).
 - Claude Code asks before each tool call unless the user allowed the tool for good. The settings ask the user to keep `send_mail` on asking. The server itself sends without a further prompt in the app, which would bring the window to the front.
 - Whatever Claude reads is processed by Anthropic like the rest of the Claude Code session.
 - Mail can contain prompt injection. Apart from the instructions, the main protection is that sending needs the user's approval in Claude Code and that the tools can't delete or move mail.

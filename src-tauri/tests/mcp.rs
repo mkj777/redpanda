@@ -1,22 +1,24 @@
 //! The MCP server against a local GreenMail server (plain IMAP 3143, SMTP 3025), driven by an
-//! MCP client like Claude Code would:
+//! MCP client like Claude Code would. The test of the Claude Desktop bridge needs no mail server
+//! and runs with the others. For the GreenMail one:
 //!
 //! ```sh
 //! docker run -d --rm -p 3025:3025 -p 3143:3143 greenmail/standalone:2.1.3
 //! cargo test --test mcp -- --ignored --nocapture
 //! ```
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use redpanda_lib::accounts::oauth::OAuthConfig;
 use redpanda_lib::accounts::secrets::Secrets;
 use redpanda_lib::core::{Core, NoEvents};
-use redpanda_lib::mcp;
+use redpanda_lib::mcp::{self, bridge};
 use redpanda_lib::model::*;
 use redpanda_lib::service::{App, NewAccountInput, NewAuth};
 use redpanda_lib::store::Db;
-use rmcp::model::{CallToolRequestParams, ClientConfig};
+use rmcp::model::{CallToolRequestParams, ClientConfig, ProtocolVersion};
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
@@ -281,4 +283,123 @@ async fn claude_reads_and_sends() {
     let _ = client.cancel().await;
     cancel.cancel();
     handle.await.unwrap();
+}
+
+/// Serves the MCP endpoint on `port` (0 for any free one) until the token fires. The port can
+/// be taken again right after, the way a restarted redpanda does.
+async fn start_server(
+    app: Arc<App>,
+    key: Arc<RwLock<String>>,
+    port: u16,
+) -> (u16, CancellationToken, tokio::task::JoinHandle<()>) {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.set_reuseaddr(true).unwrap();
+    socket.bind(([127, 0, 0, 1], port).into()).unwrap();
+    let listener = socket.listen(64).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let cancel = CancellationToken::new();
+    let handle = tokio::spawn(mcp::serve(app, listener, key, cancel.clone()));
+    (port, cancel, handle)
+}
+
+fn target(port: u16, key: &str) -> Option<bridge::Target> {
+    Some(bridge::Target {
+        url: format!("http://127.0.0.1:{port}/mcp"),
+        key: key.into(),
+    })
+}
+
+/// Claude Desktop reaches redpanda through `redpanda --mcp-stdio`. Here an MCP client stands in
+/// for Claude Desktop on the bridge's stdin and stdout. No mail server needed.
+#[tokio::test(flavor = "multi_thread")]
+async fn claude_desktop_bridge() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("redpanda_lib=info")
+        .with_test_writer()
+        .try_init();
+    let app = Arc::new(App::new(Arc::new(Core::new(
+        Db::open_in_memory().unwrap(),
+        Secrets::from_key(&[7u8; 32]).unwrap(),
+        OAuthConfig::default(),
+        Arc::new(NoEvents),
+    ))));
+    let key = Arc::new(RwLock::new(KEY.to_string()));
+    let (port, stop, server) = start_server(app.clone(), key.clone(), 0).await;
+
+    // What the bridge would read from redpanda's settings; `None` when access is off.
+    let found = Arc::new(Mutex::new(target(port, KEY)));
+    let locate: bridge::Locate = {
+        let found = found.clone();
+        Arc::new(move || {
+            let found = found.lock().unwrap().clone();
+            Box::pin(async move { found.ok_or_else(|| "redpanda is off".to_string()) })
+        })
+    };
+    let bridged = || {
+        let (claude, bridge_side) = tokio::io::duplex(1 << 16);
+        let (input, output) = tokio::io::split(bridge_side);
+        tokio::spawn(bridge::run_with(locate.clone(), input, output));
+        claude
+    };
+
+    // The handshake with a session, as Claude Desktop uses it today.
+    let client = ClientConfig::default().serve(bridged()).await.unwrap();
+    let tools = client.list_all_tools().await.unwrap();
+    assert!(tools.iter().any(|t| t.name == "send_mail"));
+    assert_eq!(call_json(&client, "list_accounts", json!({})).await, json!([]));
+
+    // redpanda restarts on the same port and no longer knows the session.
+    stop.cancel();
+    server.await.unwrap();
+    let (_, stop, server) = start_server(app.clone(), key.clone(), port).await;
+    assert_eq!(call_json(&client, "list_accounts", json!({})).await, json!([]));
+
+    // Then on another port, with a new key.
+    stop.cancel();
+    server.await.unwrap();
+    *key.write().unwrap() = "rp_new".into();
+    let (port, stop, server) = start_server(app.clone(), key.clone(), 0).await;
+    *found.lock().unwrap() = target(port, "rp_new");
+    assert_eq!(call_json(&client, "list_accounts", json!({})).await, json!([]));
+
+    // Only the key changes, while redpanda keeps running.
+    *key.write().unwrap() = "rp_newer".into();
+    *found.lock().unwrap() = target(port, "rp_newer");
+    assert_eq!(call_json(&client, "list_accounts", json!({})).await, json!([]));
+
+    // The stateless protocol of 2026-07-28, with the version and routing headers per request.
+    let modern = ClientConfig::default()
+        .serve_with_lifecycle(
+            bridged(),
+            ClientLifecycleMode::Discover {
+                preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(modern
+        .list_all_tools()
+        .await
+        .unwrap()
+        .iter()
+        .any(|t| t.name == "read_message"));
+    assert_eq!(call_json(&modern, "list_accounts", json!({})).await, json!([]));
+    assert_eq!(
+        call_json(&modern, "list_messages", json!({"unified": "unread", "limit": 5})).await["messages"],
+        json!([])
+    );
+
+    // Access switched off: a request fails with the reason instead of waiting forever.
+    *found.lock().unwrap() = None;
+    stop.cancel();
+    server.await.unwrap();
+    for c in [&client, &modern] {
+        let error = c
+            .call_tool(CallToolRequestParams::new("list_accounts"))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("redpanda is off"), "{error}");
+    }
+    let _ = client.cancel().await;
+    let _ = modern.cancel().await;
 }

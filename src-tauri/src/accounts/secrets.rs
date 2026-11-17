@@ -46,13 +46,22 @@ pub struct Secrets {
 impl Secrets {
     /// Loads the master key from the OS keyring, creating it on first start.
     pub fn load_or_create() -> Result<Secrets> {
+        Self::from_keyring(true)
+    }
+
+    /// Loads the master key the app created, for the bridge Claude Desktop starts.
+    pub fn load_existing() -> Result<Secrets> {
+        Self::from_keyring(false)
+    }
+
+    fn from_keyring(create: bool) -> Result<Secrets> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
             .map_err(|e| AppError::Secrets(e.to_string()))?;
         let key = match entry.get_password() {
             Ok(b64) => base64::engine::general_purpose::STANDARD
                 .decode(b64.trim())
                 .map_err(|e| AppError::Secrets(format!("invalid master key: {e}")))?,
-            Err(keyring::Error::NoEntry) => {
+            Err(keyring::Error::NoEntry) if create => {
                 let mut key = vec![0u8; 32];
                 rand::thread_rng().fill_bytes(&mut key);
                 entry
