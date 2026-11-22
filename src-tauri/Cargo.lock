@@ -3815,7 +3815,7 @@ dependencies = [
 
 [[package]]
 name = "redpanda"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "ammonia",
  "async-imap",
