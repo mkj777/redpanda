@@ -420,6 +420,31 @@ export async function pickFiles(): Promise<string[]> {
   return Array.isArray(result) ? result : [result];
 }
 
+const DOWNLOAD_DIR_KEY = "redpanda-download-dir";
+
+/** Asks where to save an attachment: the Downloads folder the first time, then the folder used last. */
+export async function pickDownloadPath(filename: string): Promise<string | null> {
+  if (!isTauri) return null;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const { downloadDir, join, dirname } = await import("@tauri-apps/api/path");
+  let dir: string | null = null;
+  try {
+    dir = localStorage.getItem(DOWNLOAD_DIR_KEY);
+  } catch {
+    // No storage: start in Downloads every time.
+  }
+  dir ??= await downloadDir().catch(() => null);
+  const path = await save({ defaultPath: dir ? await join(dir, filename) : filename });
+  if (path) {
+    try {
+      localStorage.setItem(DOWNLOAD_DIR_KEY, await dirname(path));
+    } catch {
+      // Only a convenience.
+    }
+  }
+  return path;
+}
+
 export async function pickSavePath(defaultName: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null> {
   if (!isTauri) return null;
   const { save } = await import("@tauri-apps/plugin-dialog");

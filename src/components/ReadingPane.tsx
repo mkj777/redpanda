@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
-import { api, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
+import { api, pickDownloadPath, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
 import { cn, displayName, fileSize, fullDate } from "@/lib/format";
 import { archive, markSeen, moveTo, remove, reply, reportError, toggleFlagged, toggleSeen } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
@@ -59,7 +59,7 @@ function Attachments({ msg }: { msg: MessageDetail }) {
               label={t("reader.save")}
               className="size-7"
               onClick={async () => {
-                const path = await pickSavePath(a.filename);
+                const path = await pickDownloadPath(a.filename);
                 if (path) await api.saveAttachment(msg.id, a.index, path).catch(reportError);
               }}
             >
