@@ -23,6 +23,8 @@ const MAX_OLD_UNREAD: usize = 500;
 const MAX_LOST: usize = 500;
 /// Messages fetched per "load older" request.
 pub const OLDER_BATCH: usize = 200;
+/// Messages fetched per step when the background loads the rest of a folder.
+const BACKFILL_BATCH: usize = 500;
 /// Messages per request when reading the unsubscribe headers of already synced mail.
 const UNSUBSCRIBE_BATCH: usize = 500;
 
@@ -195,13 +197,7 @@ pub async fn sync_account(conn: &mut Conn) -> Result<()> {
     conn.selected = None;
     conn.core.mail_changed(&account.id, None);
     folders.retain(|f| !f.hidden);
-    folders.sort_by_key(|f| match f.role.as_str() {
-        "inbox" => 0,
-        "sent" => 1,
-        "drafts" => 2,
-        "archive" => 3,
-        _ => 4,
-    });
+    folders.sort_by_key(|f| sync_rank(&f.role));
     for folder in folders {
         match sync_folder(conn, &folder).await {
             Ok(_) => {}
@@ -213,6 +209,17 @@ pub async fn sync_account(conn: &mut Conn) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The order folders are synced and filled in, inbox first.
+fn sync_rank(role: &str) -> u8 {
+    match role {
+        "inbox" => 0,
+        "sent" => 1,
+        "drafts" => 2,
+        "archive" => 3,
+        _ => 4,
+    }
 }
 
 pub async fn sync_folder_by_id(conn: &mut Conn, folder_id: i64) -> Result<bool> {
@@ -532,8 +539,8 @@ async fn backfill_unsubscribe(conn: &mut Conn, folder: &FolderRow) -> Result<boo
     Ok(found)
 }
 
-/// Fetches the next batch of older messages. Returns `true` if more remain on the server.
-pub async fn load_older(conn: &mut Conn, folder_id: i64) -> Result<bool> {
+/// Fetches the next `batch` older messages. Returns `true` if more remain on the server.
+pub async fn load_older(conn: &mut Conn, folder_id: i64, batch: usize) -> Result<bool> {
     let core = conn.core.clone();
     let account = conn.account()?;
     let folder = core.db.with(|c| queries::get_folder(c, folder_id))?;
@@ -552,20 +559,48 @@ pub async fn load_older(conn: &mut Conn, folder_id: i64) -> Result<bool> {
     };
     let mut uids: Vec<u32> = session.uid_search(query).await?.into_iter().collect();
     uids.sort_unstable_by(|a, b| b.cmp(a));
-    uids.truncate(OLDER_BATCH);
-    let more = uids.len() == OLDER_BATCH;
-    if !uids.is_empty() {
+    uids.truncate(batch);
+    let more = uids.len() == batch;
+    if let Some(&lowest) = uids.last() {
         let fetches = conn.fetch_headers(uid_set(&uids), true).await?;
         store_fetches(&core, &account, &folder, &fetches, None)?;
-        // The batch is contiguous with the range above it, so the range now starts here.
+        // The batch is contiguous with the range above it, so the range now starts here. The
+        // background and a scroll in the list can load the same folder at once, so the range
+        // only ever grows.
         core.db
-            .with(|c| queries::set_window_start(c, folder.id, uids.last().copied()))?;
+            .with(|c| queries::lower_window_start(c, folder.id, lowest))?;
         core.mail_changed(&account.id, Some(folder.id));
     }
     if !more {
         core.db.with(|c| queries::set_fully_loaded(c, folder.id, true))?;
     }
     Ok(more)
+}
+
+/// Loads the next batch of older headers into the first visible folder that still has some on
+/// the server, so lists and search cover the whole mailbox and not just its newest messages.
+/// Message numbers do not follow dates everywhere: in some mailboxes mail from last month sits
+/// far below the newest numbers. Folders in `skip` are left out. Returns `false` once every
+/// folder is complete.
+pub async fn backfill_step(conn: &mut Conn, skip: &mut HashSet<i64>) -> Result<bool> {
+    let account_id = conn.account_id.clone();
+    let mut folders = conn.core.db.with(|c| queries::folder_rows(c, &account_id))?;
+    folders.retain(|f| !f.hidden && !f.fully_loaded && !skip.contains(&f.id));
+    folders.sort_by_key(|f| sync_rank(&f.role));
+    let Some(folder) = folders.first() else {
+        return Ok(false);
+    };
+    match load_older(conn, folder.id, BACKFILL_BATCH).await {
+        Ok(_) => {}
+        // A folder that cannot be read must not stop the others.
+        Err(AppError::Imap(msg)) => {
+            tracing::warn!(folder = %folder.path, "loading older mail failed: {msg}");
+            skip.insert(folder.id);
+            conn.reset();
+        }
+        Err(e) => return Err(e),
+    }
+    Ok(true)
 }
 
 /// Re-fetches headers for UIDs, used to undo an optimistic local change after a failed action.

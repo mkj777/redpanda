@@ -599,8 +599,8 @@ async fn send_as_alias() {
     app.remove_account(&account.id).unwrap();
 }
 
-/// Unread mail older than the 500 newest still shows up under "Unread", follows changes on the
-/// server, and loading older mail closes the gap without losing anything.
+/// Unread mail older than the 500 newest still shows up under "Unread", the background loads the
+/// rest of the folder, and changes on the server reach all of it.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a GreenMail container"]
 async fn old_unread_outside_the_window() {
@@ -676,12 +676,13 @@ async fn old_unread_outside_the_window() {
     let counts = app.list_folders().unwrap().unified;
     assert_eq!(counts.inbox_unread, 3);
     assert_eq!(counts.unread, 3);
-    // The newest 500 plus the three below them.
-    let stored = core
-        .db
-        .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?))
-        .unwrap();
-    assert_eq!(stored, 503);
+    // After the newest 500 and the unread below them, the background loads the rest.
+    let stored = || {
+        core.db
+            .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?))
+            .unwrap()
+    };
+    eventually("the older mail", || (stored() == TOTAL as i64).then_some(())).await;
 
     // Read on another device, and deleted on another device.
     {
@@ -711,7 +712,7 @@ async fn old_unread_outside_the_window() {
         .unwrap();
     assert_eq!(stored_subjects, ["Mail 1"]);
 
-    // Loading older mail fills the gap below the 500 newest.
+    // Nothing is left to load, and the mail deleted elsewhere is gone here too.
     let inbox_id = app
         .list_folders()
         .unwrap()
@@ -720,12 +721,8 @@ async fn old_unread_outside_the_window() {
         .find(|f| f.account_id == account.id && f.role == "inbox")
         .unwrap()
         .id;
-    while app.load_older(inbox_id).await.unwrap() {}
-    let stored = core
-        .db
-        .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?))
-        .unwrap();
-    assert_eq!(stored, (TOTAL - 1) as i64);
+    assert!(!app.load_older(inbox_id).await.unwrap());
+    assert_eq!(stored(), (TOTAL - 1) as i64);
 
     // A row dropped by mistake comes back, and a mail read only here is unread again.
     core.db

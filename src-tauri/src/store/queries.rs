@@ -526,6 +526,15 @@ pub fn set_window_start(c: &Connection, folder_id: i64, uid: Option<u32>) -> Res
     Ok(())
 }
 
+/// Moves the start of the loaded range down to `uid`, never up.
+pub fn lower_window_start(c: &Connection, folder_id: i64, uid: u32) -> Result<()> {
+    c.execute(
+        "UPDATE folders SET window_start = MIN(COALESCE(window_start, ?2), ?2) WHERE id = ?1",
+        params![folder_id, uid],
+    )?;
+    Ok(())
+}
+
 /// Stored UIDs below the loaded range, the unread messages fetched on their own.
 pub fn uids_below(c: &Connection, folder_id: i64, below: u32) -> Result<Vec<u32>> {
     let mut stmt = c.prepare("SELECT uid FROM messages WHERE folder_id = ?1 AND uid < ?2")?;
@@ -1296,6 +1305,21 @@ mod tests {
             })
             .unwrap();
         (db, ids.0, ids.1)
+    }
+
+    #[test]
+    fn the_loaded_range_only_grows() {
+        let (db, inbox, _) = setup();
+        db.with(|c| {
+            lower_window_start(c, inbox, 300)?;
+            assert_eq!(window_start(c, inbox)?, Some(300));
+            lower_window_start(c, inbox, 100)?;
+            // A slower load of a batch further up arrives after the lower one.
+            lower_window_start(c, inbox, 200)?;
+            assert_eq!(window_start(c, inbox)?, Some(100));
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]

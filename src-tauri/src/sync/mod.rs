@@ -2,14 +2,15 @@
 //!
 //! Every account runs three tasks, each with its own IMAP connection:
 //! - **interactive**: body fetches and user actions, so they never wait behind a long sync
-//! - **background**: full sync on start, every 5 minutes and when IDLE reports changes
+//! - **background**: full sync on start, every 5 minutes and when IDLE reports changes, and in
+//!   between loads the headers of older mail until every folder is complete
 //! - **idle**: IDLE on INBOX (or polling if the server has no IDLE)
 
 pub mod engine;
 pub mod folders;
 pub mod imap_conn;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -286,7 +287,7 @@ async fn run_job(conn: &mut Conn, job: &Job) -> Result<bool> {
             .await
             .map(|_| true),
         Job::Expunge { folder_id, uids } => engine::expunge_uids(conn, *folder_id, uids).await.map(|_| true),
-        Job::LoadOlder { folder_id } => engine::load_older(conn, *folder_id).await,
+        Job::LoadOlder { folder_id } => engine::load_older(conn, *folder_id, engine::OLDER_BATCH).await,
         Job::SyncFolder { folder_id } => engine::sync_folder_by_id(conn, *folder_id).await,
         Job::CreateFolder { path } => engine::create_folder(conn, path).await.map(|_| true),
         Job::Append {
@@ -351,9 +352,31 @@ async fn background_worker(
     let mut backoff = Duration::from_secs(5);
     let mut next = Some(BgCmd::SyncAll);
     let mut aliases_read: Option<Instant> = None;
+    // Older mail is loaded after a full sync, one batch at a time, so a sync never waits long.
+    let mut backfill = false;
+    let mut skip: HashSet<i64> = HashSet::new();
+    let mut last_full = Instant::now();
     loop {
         let cmd = match next.take() {
             Some(c) => c,
+            // A long fill-in must not hold up the regular full sync.
+            None if backfill && last_full.elapsed() >= POLL_INTERVAL => BgCmd::SyncAll,
+            None if backfill => match rx.try_recv() {
+                Ok(c) => c,
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    match engine::backfill_step(&mut conn, &mut skip).await {
+                        Ok(more) => backfill = more,
+                        Err(e) => {
+                            // Tried again after the next full sync.
+                            tracing::info!(account = %account_id, "loading older mail paused: {e}");
+                            conn.reset();
+                            backfill = false;
+                        }
+                    }
+                    continue;
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            },
             None => match tokio::time::timeout(POLL_INTERVAL, rx.recv()).await {
                 Ok(Some(c)) => c,
                 Ok(None) => break,
@@ -384,6 +407,11 @@ async fn background_worker(
             Ok(()) => {
                 status.set(SyncState::Idle, None);
                 backoff = Duration::from_secs(5);
+                if full {
+                    last_full = Instant::now();
+                    backfill = true;
+                    skip.clear();
+                }
                 if full && aliases_read.is_none_or(|t| t.elapsed() >= ALIAS_REFRESH) {
                     aliases_read = Some(Instant::now());
                     refresh_aliases(&core, &account_id).await;
@@ -392,6 +420,7 @@ async fn background_worker(
             Err(e) => {
                 tracing::warn!(account = %account_id, "sync failed: {e}");
                 status.set_error(&e);
+                backfill = false;
                 conn.reset();
                 if e.is_auth_error() {
                     // Wait for an explicit trigger (re-login restarts the workers anyway).
