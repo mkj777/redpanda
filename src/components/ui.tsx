@@ -195,6 +195,7 @@ export function Dialog({
   title,
   children,
   width = 480,
+  height,
   closeLabel,
   onEscapeKeyDown,
 }: {
@@ -203,6 +204,8 @@ export function Dialog({
   title: string;
   children: ReactNode;
   width?: number;
+  /** A fixed height (CSS value), so the dialog keeps its size while its content changes. */
+  height?: string;
   closeLabel: string;
   onEscapeKeyDown?: (e: KeyboardEvent) => void;
 }) {
@@ -222,7 +225,7 @@ export function Dialog({
             (field ?? root).focus();
           }}
           aria-describedby={undefined}
-          style={{ width }}
+          style={{ width, height }}
           tabIndex={-1}
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-line bg-surface shadow-[0_2px_8px_rgba(0,0,0,0.12)] outline-none"
         >

@@ -57,6 +57,8 @@ export interface Folder {
   role: FolderRole;
   unreadCount: number;
   totalCount: number;
+  /** Messages stored locally, lower than totalCount while older mail is still loading. */
+  loadedCount: number;
 }
 
 export interface UnifiedCounts {

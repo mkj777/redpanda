@@ -85,7 +85,7 @@ const accounts: Account[] = [
 let folderSeq = 1;
 const folders: Folder[] = [];
 function addFolder(accountId: string, path: string, name: string, role: FolderRole, depth = 0) {
-  const f: Folder = { id: folderSeq++, accountId, path, name, depth, role, unreadCount: 0, totalCount: 0 };
+  const f: Folder = { id: folderSeq++, accountId, path, name, depth, role, unreadCount: 0, totalCount: 0, loadedCount: 0 };
   folders.push(f);
   return f;
 }
@@ -351,6 +351,7 @@ function recount() {
   for (const f of folders) {
     const live = messages.filter((m) => !m.deleted && m.folderId === f.id);
     f.totalCount = live.length;
+    f.loadedCount = live.length;
     f.unreadCount = live.filter((m) => !m.seen).length;
   }
 }

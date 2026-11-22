@@ -88,6 +88,20 @@ function Row({
   );
 }
 
+/** While older mail is still loading in the background: how far it has got, under the account. */
+function LoadingProgress({ folders }: { folders: Folder[] }) {
+  const { t, i18n } = useTranslation();
+  if (!folders.some((f) => f.loadedCount < f.totalCount)) return null;
+  const total = folders.reduce((n, f) => n + f.totalCount, 0);
+  const loaded = folders.reduce((n, f) => n + Math.min(f.loadedCount, f.totalCount), 0);
+  const number = new Intl.NumberFormat(i18n.language);
+  return (
+    <div className="pb-0.5 pl-[37px] pr-1 text-[11px] leading-snug tabular-nums text-faint">
+      {t("nav.loadingMail", { loaded: number.format(loaded), total: number.format(total) })}
+    </div>
+  );
+}
+
 function StatusIcon({ account }: { account: Account }) {
   const { t } = useTranslation();
   const setSettingsOpen = useUi((s) => s.setSettingsOpen);
@@ -211,6 +225,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                 </button>
                 <StatusIcon account={a} />
               </div>
+              <LoadingProgress folders={own} />
               {!isClosed &&
                 own.map((f) => (
                   <Row

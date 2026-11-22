@@ -25,7 +25,8 @@
     "allTrash": "Trash",
     "addAccount": "Add account",
     "settings": "Settings",
-    "subscriptions": "Subscriptions"
+    "subscriptions": "Subscriptions",
+    "loadingMail": "Loading mail… {{loaded}} of {{total}}"
   },
   "folder": {
     "inbox": "Inbox",

@@ -34,26 +34,26 @@ export function UpdateSettings() {
   };
 
   return (
-    <div className="flex flex-col gap-2 border-t border-line pt-4">
-      <div className="text-[13px] font-medium">{t("update.version", { version: status.version })}</div>
+    <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
       {!status.supported ? (
         <p className="text-xs text-muted">{t("update.devBuild")}</p>
       ) : status.available ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <>
           <span className="text-[13px] text-fg">{t("update.available", { version: status.available.version })}</span>
           <Button variant="primary" size="sm" onClick={() => void installUpdate()}>
             {t("update.install")}
           </Button>
-        </div>
+        </>
       ) : (
-        <div className="flex flex-wrap items-center gap-3">
+        <>
           <Button size="sm" disabled={checking} onClick={() => void check()}>
             {checking && <Spinner className="size-3.5" />}
             {t("update.check")}
           </Button>
           {message && <span className="text-xs text-muted">{message}</span>}
-        </div>
+        </>
       )}
+      <span className="ml-auto text-[13px] tabular-nums text-muted">{t("update.version", { version: status.version })}</span>
     </div>
   );
 }

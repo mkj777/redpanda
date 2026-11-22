@@ -207,104 +207,115 @@ export function SettingsDialog() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen} title={t("settings.title")} width={560} closeLabel={t("common.close")}>
-      <div role="tablist" className="flex gap-4 border-b border-line px-4">
-        {(["accounts", "general", "claude", "shortcuts"] as const).map((k) => (
-          <button
-            key={k}
-            role="tab"
-            aria-selected={tab === k}
-            onClick={() => setTab(k)}
-            className={cn(
-              "-mb-px h-10 border-b-2 text-[13px]",
-              tab === k ? "border-accent font-medium text-fg" : "border-transparent text-muted hover:text-fg",
-            )}
-          >
-            {t(`settings.tab.${k}`)}
-          </button>
-        ))}
-      </div>
-      <div className="px-4 pb-4">
-        {tab === "accounts" && (
-          <>
-            {accounts.map((a) => (
-              <AccountRow key={a.id} account={a} />
-            ))}
-            {!accounts.length && <p className="py-6 text-sm text-muted">{t("settings.noAccounts")}</p>}
-            <Button
-              className="mt-2"
-              onClick={() => {
-                setOpen(false);
-                setWizardOpen(true);
-              }}
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      title={t("settings.title")}
+      width={560}
+      // The same size for every tab, so the tabs stay in place while switching.
+      height="min(640px, 88vh)"
+      closeLabel={t("common.close")}
+    >
+      <div className="flex h-full flex-col">
+        <div role="tablist" className="flex shrink-0 gap-4 border-b border-line px-4">
+          {(["accounts", "general", "claude", "shortcuts"] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={cn(
+                "-mb-px h-10 border-b-2 text-[13px]",
+                tab === k ? "border-accent font-medium text-fg" : "border-transparent text-muted hover:text-fg",
+              )}
             >
-              {t("nav.addAccount")}
-            </Button>
-          </>
-        )}
-        {tab === "general" && (
-          <div className="flex flex-col gap-4 pt-4">
-            <Field label={t("settings.language")} htmlFor="set-lang">
-              <Select<Language>
-                id="set-lang"
-                value={settings.language}
-                onChange={settings.setLanguage}
-                options={[
-                  { value: "system", label: t("settings.lang.system") },
-                  { value: "en", label: "English" },
-                  { value: "de", label: "Deutsch" },
-                ]}
-              />
-            </Field>
-            <Field label={t("settings.theme")} htmlFor="set-theme">
-              <Select<Theme>
-                id="set-theme"
-                value={settings.theme}
-                onChange={settings.setTheme}
-                options={[
-                  { value: "system", label: t("settings.themeOption.system") },
-                  { value: "light", label: t("settings.themeOption.light") },
-                  { value: "dark", label: t("settings.themeOption.dark") },
-                ]}
-              />
-            </Field>
-            <Switch checked={settings.threads} onChange={settings.setThreads} label={t("settings.threads")} />
-            <Switch checked={settings.autoLoadImages} onChange={settings.setAutoLoadImages} label={t("settings.autoLoadImages")} />
-            {appSettings && (
-              <>
-                <Switch
-                  checked={appSettings.closeToTray}
-                  onChange={(v) => void setCloseToTray(v)}
-                  label={t("settings.closeToTray")}
-                  hint={t("settings.closeToTrayHint")}
-                />
-                <Switch
-                  checked={appSettings.autostart}
-                  onChange={(v) => void setAutostart(v)}
-                  label={t("settings.autostart")}
-                  hint={t("settings.autostartHint")}
-                />
-              </>
-            )}
-            <DefaultMailSetting />
-            <UpdateSettings />
-          </div>
-        )}
-        {tab === "claude" && <ClaudeSettings />}
-        {tab === "shortcuts" && (
-          <table className="mt-2 w-full text-[13px]">
-            <tbody>
-              {SHORTCUTS.map(([keys, label]) => (
-                <tr key={keys} className="border-b border-line last:border-b-0">
-                  <td className="py-2 text-fg">{t(label)}</td>
-                  <td className="py-2 text-right">
-                    <kbd className="rounded border border-line-strong bg-bg px-1.5 py-0.5 font-sans text-xs">{keys}</kbd>
-                  </td>
-                </tr>
+              {t(`settings.tab.${k}`)}
+            </button>
+          ))}
+        </div>
+        {/* The gutter keeps the content from moving sideways when a scrollbar appears. */}
+        <div className="min-h-0 flex-1 overflow-y-auto pb-4 pl-4 pr-1.5 [scrollbar-gutter:stable]">
+          {tab === "accounts" && (
+            <>
+              {accounts.map((a) => (
+                <AccountRow key={a.id} account={a} />
               ))}
-            </tbody>
-          </table>
-        )}
+              {!accounts.length && <p className="py-6 text-sm text-muted">{t("settings.noAccounts")}</p>}
+              <Button
+                className="mt-2"
+                onClick={() => {
+                  setOpen(false);
+                  setWizardOpen(true);
+                }}
+              >
+                {t("nav.addAccount")}
+              </Button>
+            </>
+          )}
+          {tab === "general" && (
+            <div className="flex flex-col gap-4 pt-4">
+              <Field label={t("settings.language")} htmlFor="set-lang">
+                <Select<Language>
+                  id="set-lang"
+                  value={settings.language}
+                  onChange={settings.setLanguage}
+                  options={[
+                    { value: "system", label: t("settings.lang.system") },
+                    { value: "en", label: "English" },
+                    { value: "de", label: "Deutsch" },
+                  ]}
+                />
+              </Field>
+              <Field label={t("settings.theme")} htmlFor="set-theme">
+                <Select<Theme>
+                  id="set-theme"
+                  value={settings.theme}
+                  onChange={settings.setTheme}
+                  options={[
+                    { value: "system", label: t("settings.themeOption.system") },
+                    { value: "light", label: t("settings.themeOption.light") },
+                    { value: "dark", label: t("settings.themeOption.dark") },
+                  ]}
+                />
+              </Field>
+              <Switch checked={settings.threads} onChange={settings.setThreads} label={t("settings.threads")} />
+              <Switch checked={settings.autoLoadImages} onChange={settings.setAutoLoadImages} label={t("settings.autoLoadImages")} />
+              {appSettings && (
+                <>
+                  <Switch
+                    checked={appSettings.closeToTray}
+                    onChange={(v) => void setCloseToTray(v)}
+                    label={t("settings.closeToTray")}
+                    hint={t("settings.closeToTrayHint")}
+                  />
+                  <Switch
+                    checked={appSettings.autostart}
+                    onChange={(v) => void setAutostart(v)}
+                    label={t("settings.autostart")}
+                    hint={t("settings.autostartHint")}
+                  />
+                </>
+              )}
+              <DefaultMailSetting />
+              <UpdateSettings />
+            </div>
+          )}
+          {tab === "claude" && <ClaudeSettings />}
+          {tab === "shortcuts" && (
+            <table className="mt-2 w-full text-[13px]">
+              <tbody>
+                {SHORTCUTS.map(([keys, label]) => (
+                  <tr key={keys} className="border-b border-line last:border-b-0">
+                    <td className="py-2 text-fg">{t(label)}</td>
+                    <td className="py-2 text-right">
+                      <kbd className="rounded border border-line-strong bg-bg px-1.5 py-0.5 font-sans text-xs">{keys}</kbd>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </Dialog>
   );

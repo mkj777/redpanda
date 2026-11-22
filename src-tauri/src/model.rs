@@ -108,6 +108,8 @@ pub struct Folder {
     pub role: String,
     pub unread_count: i64,
     pub total_count: i64,
+    /// Messages stored here, at most `total_count`. Lower while older mail is still loading.
+    pub loaded_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

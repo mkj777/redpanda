@@ -371,7 +371,9 @@ pub fn adjust_unread(c: &Connection, folder_id: i64, delta: i64) -> Result<()> {
 
 pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
     let mut stmt = c.prepare(
-        "SELECT f.id, f.account_id, f.path, f.name, f.depth, f.role, f.unread_count, f.total_count \
+        "SELECT f.id, f.account_id, f.path, f.name, f.depth, f.role, f.unread_count, f.total_count, \
+           CASE WHEN f.fully_loaded THEN f.total_count \
+             ELSE MIN(f.total_count, (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id)) END \
          FROM folders f JOIN accounts a ON a.id = f.account_id WHERE f.hidden = 0 \
          ORDER BY a.sort_order, \
            CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'sent' THEN 2 WHEN 'archive' THEN 3 \
@@ -388,6 +390,7 @@ pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
             role: r.get(5)?,
             unread_count: r.get(6)?,
             total_count: r.get(7)?,
+            loaded_count: r.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -1305,6 +1308,41 @@ mod tests {
             })
             .unwrap();
         (db, ids.0, ids.1)
+    }
+
+    #[test]
+    fn folders_tell_how_much_is_loaded() {
+        let (db, inbox, _) = setup();
+        db.with(|c| {
+            for uid in 1..=3 {
+                upsert_message(
+                    c,
+                    &msg("a1", inbox, uid, &format!("m{uid}"), &format!("t{uid}"), 100),
+                    false,
+                )?;
+            }
+            let state = |total| FolderSyncState {
+                uidvalidity: Some(1),
+                uidnext: Some(4),
+                highestmodseq: None,
+                unread: 0,
+                total,
+            };
+            let loaded = |c: &Connection| -> Result<(i64, i64)> {
+                let f = list_folders(c)?.into_iter().find(|f| f.id == inbox).unwrap();
+                Ok((f.loaded_count, f.total_count))
+            };
+            update_folder_sync_state(c, inbox, &state(10))?;
+            assert_eq!(loaded(c)?, (3, 10));
+            // Never more than the server has, e.g. right after a deletion elsewhere.
+            update_folder_sync_state(c, inbox, &state(2))?;
+            assert_eq!(loaded(c)?, (2, 2));
+            update_folder_sync_state(c, inbox, &state(10))?;
+            set_fully_loaded(c, inbox, true)?;
+            assert_eq!(loaded(c)?, (10, 10));
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]

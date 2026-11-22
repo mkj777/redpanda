@@ -25,7 +25,8 @@
     "allTrash": "Papierkorb",
     "addAccount": "Konto hinzufügen",
     "settings": "Einstellungen",
-    "subscriptions": "Abos"
+    "subscriptions": "Abos",
+    "loadingMail": "E-Mails werden geladen… {{loaded}} von {{total}}"
   },
   "folder": {
     "inbox": "Posteingang",
