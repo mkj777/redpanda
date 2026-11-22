@@ -10,6 +10,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0004_settings.sql"),
     include_str!("migrations/0005_window.sql"),
     include_str!("migrations/0006_flag_resync.sql"),
+    include_str!("migrations/0007_text_search.sql"),
 ];
 
 pub fn apply(conn: &mut Connection) -> Result<()> {

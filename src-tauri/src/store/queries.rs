@@ -372,8 +372,10 @@ pub fn adjust_unread(c: &Connection, folder_id: i64, delta: i64) -> Result<()> {
 pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
     let mut stmt = c.prepare(
         "SELECT f.id, f.account_id, f.path, f.name, f.depth, f.role, f.unread_count, f.total_count, \
-           CASE WHEN f.fully_loaded THEN f.total_count \
-             ELSE MIN(f.total_count, (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id)) END \
+           CASE WHEN f.fully_loaded AND NOT EXISTS ( \
+               SELECT 1 FROM messages m WHERE m.folder_id = f.id AND m.text_state = 0) THEN f.total_count \
+             ELSE MIN(f.total_count, \
+               (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id AND m.text_state <> 0)) END \
          FROM folders f JOIN accounts a ON a.id = f.account_id WHERE f.hidden = 0 \
          ORDER BY a.sort_order, \
            CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'sent' THEN 2 WHEN 'archive' THEN 3 \
@@ -482,11 +484,15 @@ pub fn upsert_message(c: &Connection, m: &NewMessage, collect_recipients: bool) 
     let mut recipients = m.to.clone();
     recipients.extend(m.cc.iter().cloned());
     c.execute(
-        "INSERT INTO messages_fts (rowid, subject, sender, recipients, preview, body) VALUES (?1, ?2, ?3, ?4, ?5, '')",
+        "INSERT INTO messages_fts (rowid, subject, sender, recipients, preview, body, attachments) \
+         VALUES (?1, ?2, ?3, ?4, ?5, '', '')",
         params![
             id,
             m.subject,
-            m.from.as_ref().map(|a| addresses_text(std::slice::from_ref(a))).unwrap_or_default(),
+            m.from
+                .as_ref()
+                .map(|a| addresses_text(std::slice::from_ref(a)))
+                .unwrap_or_default(),
             addresses_text(&recipients),
             m.preview
         ],
@@ -719,6 +725,19 @@ pub fn list_messages(
     limit: u32,
     threads: bool,
 ) -> Result<MessagePage> {
+    list_messages_with(c, view, offset, limit, threads, &[])
+}
+
+/// Like `list_messages`, where a search also shows `server_hits`, the messages a search on the
+/// server found.
+pub fn list_messages_with(
+    c: &Connection,
+    view: &View,
+    offset: u32,
+    limit: u32,
+    threads: bool,
+    server_hits: &[i64],
+) -> Result<MessagePage> {
     let mut args: Vec<rusqlite::types::Value> = Vec::new();
     let filter = match view {
         View::Folder { folder_id } => {
@@ -743,7 +762,10 @@ pub fn list_messages(
                 });
             };
             args.push(q.into());
-            "m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1)".to_string()
+            args.push(serde_json::to_string(server_hits)?.into());
+            "(m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1) \
+              OR m.id IN (SELECT value FROM json_each(?2)))"
+                .to_string()
         }
         View::Sender { account_id, email } => {
             args.push(account_id.clone().into());
@@ -883,10 +905,105 @@ pub fn save_body(c: &Connection, message_id: i64, body: &BodyRow, raw: &[u8]) ->
         ],
     )?;
     c.execute(
-        "UPDATE messages_fts SET body = ?2 WHERE rowid = ?1",
-        params![message_id, body.text.clone().unwrap_or_default()],
+        "UPDATE messages_fts SET body = ?2, attachments = ?3 WHERE rowid = ?1",
+        params![
+            message_id,
+            body.text.as_deref().map(index_text).unwrap_or_default(),
+            attachment_names(
+                body.attachments
+                    .iter()
+                    .filter(|a| !a.inline)
+                    .map(|a| a.filename.as_str())
+            ),
+        ],
     )?;
+    c.execute("UPDATE messages SET text_state = 1 WHERE id = ?1", [message_id])?;
     Ok(())
+}
+
+/// Characters of a message's text kept in the search index.
+const MAX_INDEXED_CHARS: usize = 100_000;
+
+fn index_text(text: &str) -> String {
+    text.chars().take(MAX_INDEXED_CHARS).collect()
+}
+
+/// Attachment names as one searchable string.
+pub fn attachment_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    names.collect::<Vec<_>>().join(" ")
+}
+
+/// Messages of a folder whose text is not in the search index yet, newest first.
+pub fn pending_text(c: &Connection, folder_id: i64, limit: usize) -> Result<Vec<(i64, u32)>> {
+    let mut stmt = c.prepare(
+        "SELECT id, uid FROM messages WHERE folder_id = ?1 AND text_state = 0 ORDER BY date DESC LIMIT ?2",
+    )?;
+    let rows = stmt
+        .query_map(params![folder_id, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// What the background read of a message's text found.
+pub struct LoadedText {
+    pub message_id: i64,
+    /// `None` when the message has no readable text or could not be read.
+    pub text: Option<String>,
+    pub attachments: String,
+}
+
+/// Puts loaded texts into the search index. A message opened in the meantime keeps the text from
+/// its full body. The preview is taken from the text as well, since the one made from the first
+/// bytes of a message is often raw HTML.
+pub fn save_texts(c: &Connection, texts: &[LoadedText]) -> Result<()> {
+    for t in texts {
+        let text = t.text.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let updated = c.execute(
+            "UPDATE messages SET text_state = ?2 WHERE id = ?1 AND text_state = 0",
+            params![t.message_id, if text.is_some() { 1 } else { 2 }],
+        )?;
+        if updated == 0 {
+            continue;
+        }
+        let preview = text
+            .map(crate::mime::parse::clean_preview)
+            .filter(|p| !p.is_empty());
+        if let Some(p) = &preview {
+            c.execute(
+                "UPDATE messages SET preview = ?2 WHERE id = ?1",
+                params![t.message_id, p],
+            )?;
+        }
+        c.execute(
+            "UPDATE messages_fts SET body = ?2, attachments = ?3, preview = COALESCE(?4, preview) WHERE rowid = ?1",
+            params![t.message_id, text.map(index_text).unwrap_or_default(), t.attachments, preview],
+        )?;
+    }
+    Ok(())
+}
+
+/// Which of `uids` are stored in the folder.
+pub fn uids_for(c: &Connection, folder_id: i64, uids: &[u32]) -> Result<Vec<u32>> {
+    let list = serde_json::to_string(uids)?;
+    let mut stmt = c.prepare(
+        "SELECT uid FROM messages WHERE folder_id = ?1 AND uid IN (SELECT value FROM json_each(?2))",
+    )?;
+    let rows = stmt
+        .query_map(params![folder_id, list], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Local messages for UIDs that a search on the server found.
+pub fn ids_for_uids(c: &Connection, folder_id: i64, uids: &[u32]) -> Result<Vec<i64>> {
+    let list = serde_json::to_string(uids)?;
+    let mut stmt = c.prepare(
+        "SELECT id FROM messages WHERE folder_id = ?1 AND uid IN (SELECT value FROM json_each(?2))",
+    )?;
+    let rows = stmt
+        .query_map(params![folder_id, list], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
 }
 
 /// Every stored raw message that has HTML, for re-sanitizing after the rules changed.
@@ -1321,6 +1438,10 @@ mod tests {
                     false,
                 )?;
             }
+            let ids: Vec<i64> = pending_text(c, inbox, 10)?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
             let state = |total| FolderSyncState {
                 uidvalidity: Some(1),
                 uidnext: Some(4),
@@ -1332,14 +1453,80 @@ mod tests {
                 let f = list_folders(c)?.into_iter().find(|f| f.id == inbox).unwrap();
                 Ok((f.loaded_count, f.total_count))
             };
+            let text = |id: i64, text: Option<&str>| LoadedText {
+                message_id: id,
+                text: text.map(str::to_string),
+                attachments: String::new(),
+            };
             update_folder_sync_state(c, inbox, &state(10))?;
-            assert_eq!(loaded(c)?, (3, 10));
+            // A message counts once its text is in, or turned out to have none.
+            assert_eq!(loaded(c)?, (0, 10));
+            save_texts(c, &[text(ids[0], Some("Hallo")), text(ids[1], None)])?;
+            assert_eq!(loaded(c)?, (2, 10));
             // Never more than the server has, e.g. right after a deletion elsewhere.
-            update_folder_sync_state(c, inbox, &state(2))?;
-            assert_eq!(loaded(c)?, (2, 2));
+            update_folder_sync_state(c, inbox, &state(1))?;
+            assert_eq!(loaded(c)?, (1, 1));
             update_folder_sync_state(c, inbox, &state(10))?;
             set_fully_loaded(c, inbox, true)?;
+            assert_eq!(loaded(c)?, (2, 10));
+            save_texts(c, &[text(ids[2], Some("Tschüss"))])?;
             assert_eq!(loaded(c)?, (10, 10));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn loaded_texts_and_attachment_names_are_searchable() {
+        let (db, inbox, _) = setup();
+        db.with(|c| {
+            for uid in 1..=2 {
+                upsert_message(
+                    c,
+                    &msg("a1", inbox, uid, &format!("m{uid}"), &format!("t{uid}"), 100),
+                    false,
+                )?;
+            }
+            let ids: Vec<i64> = pending_text(c, inbox, 10)?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
+            save_texts(
+                c,
+                &[LoadedText {
+                    message_id: ids[0],
+                    text: Some("Dein neues MacBook Air ist da.".into()),
+                    attachments: "BD85386379.pdf".into(),
+                }],
+            )?;
+            let search = |c: &Connection, q: &str, hits: &[i64]| -> Result<Vec<i64>> {
+                let view = View::Search { query: q.into() };
+                Ok(list_messages_with(c, &view, 0, 10, false, hits)?
+                    .items
+                    .into_iter()
+                    .map(|m| m.id)
+                    .collect())
+            };
+            assert_eq!(search(c, "macbook air", &[])?, [ids[0]]);
+            assert_eq!(search(c, "BD85386379", &[])?, [ids[0]]);
+            // The preview now comes from the text.
+            assert_eq!(get_summary(c, ids[0])?.preview, "Dein neues MacBook Air ist da.");
+            // What the server found shows up next to the local hits.
+            let mut both = search(c, "macbook", &[ids[1]])?;
+            both.sort();
+            let mut expected = ids.clone();
+            expected.sort();
+            assert_eq!(both, expected);
+            // A text from the background never replaces the full body of an opened message.
+            save_texts(
+                c,
+                &[LoadedText {
+                    message_id: ids[0],
+                    text: Some("anders".into()),
+                    attachments: String::new(),
+                }],
+            )?;
+            assert_eq!(search(c, "anders", &[])?, Vec::<i64>::new());
             Ok(())
         })
         .unwrap();

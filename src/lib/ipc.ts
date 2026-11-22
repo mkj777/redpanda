@@ -244,6 +244,8 @@ export const api = {
   openFolder: (folderId: number) => call<void>("open_folder", { folderId }),
   syncNow: (accountId?: string) => call<void>("sync_now", { accountId: accountId ?? null }),
   loadOlder: (folderId: number) => call<boolean>("load_older", { folderId }),
+  /** Searches every account on its server too; the hits then show up in the search view. */
+  searchServer: (query: string) => call<number>("search_server", { query }),
   getMessage: (id: number) => call<MessageDetail>("get_message", { id }),
   getThread: (id: number) => call<MessageSummary[]>("get_thread", { id }),
   setFlags: (ids: number[], flag: FlagKind, value: boolean, threads: boolean) =>

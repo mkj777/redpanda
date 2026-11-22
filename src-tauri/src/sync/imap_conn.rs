@@ -159,6 +159,10 @@ pub struct Caps {
     pub condstore: bool,
     pub move_: bool,
     pub uidplus: bool,
+    /// Gmail's extensions, among them its own search syntax.
+    pub gmail: bool,
+    /// Literals that need no round trip (LITERAL+ or LITERAL-).
+    pub literal_plus: bool,
 }
 
 pub async fn capabilities(session: &mut Session) -> Result<Caps> {
@@ -168,6 +172,8 @@ pub async fn capabilities(session: &mut Session) -> Result<Caps> {
         condstore: caps.has_str("CONDSTORE") || caps.has_str("QRESYNC"),
         move_: caps.has_str("MOVE"),
         uidplus: caps.has_str("UIDPLUS"),
+        gmail: caps.has_str("X-GM-EXT-1"),
+        literal_plus: caps.has_str("LITERAL+") || caps.has_str("LITERAL-"),
     })
 }
 

@@ -96,6 +96,12 @@ pub fn sync_now(state: AppState<'_>, account_id: Option<String>) {
     state.sync_now(account_id.as_deref())
 }
 
+/// Searches every account on its server too; the hits then show up in the search view.
+#[tauri::command]
+pub async fn search_server(state: AppState<'_>, query: String) -> Result<usize> {
+    state.search_server(&query).await
+}
+
 #[tauri::command]
 pub async fn load_older(state: AppState<'_>, folder_id: i64) -> Result<bool> {
     state.load_older(folder_id).await

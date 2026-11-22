@@ -833,3 +833,122 @@ async fn new_mail_arrives_by_idle() {
         .await;
     }
 }
+
+/// The background loads the text of every message and the names of its attachments, so search
+/// finds them without opening a mail, and a search on the server adds what the index lacks.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a GreenMail container"]
+async fn text_search_without_opening() {
+    let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let user = format!("u{id}@example.com");
+    let head = |n: u32, subject: &str, ct: &str| {
+        format!(
+            "From: Shop <shop@example.com>\r\nTo: {user}\r\nSubject: {subject}\r\nMessage-ID: <t{n}-{id}@example.com>\r\n\
+             Date: Sat, 17 Oct 2026 09:0{n}:00 +0000\r\nMIME-Version: 1.0\r\n{ct}\r\n"
+        )
+    };
+    let mails = [
+        head(1, "Bestellung", "Content-Type: multipart/alternative; boundary=\"b1\"")
+            + "\r\n--b1\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n\
+               Dein MacBook Air ist unterwegs. Gr=C3=BC=C3=9Fe\r\n\
+               --b1\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Dein MacBook Air ist unterwegs.</p>\r\n--b1--\r\n",
+        head(2, "Rechnung", "Content-Type: multipart/mixed; boundary=\"b2\"")
+            + "\r\n--b2\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nIm Anhang findest du deine Rechnung.\r\n\
+               --b2\r\nContent-Type: application/pdf; name=\"BD85386379.pdf\"\r\n\
+               Content-Disposition: attachment; filename=\"BD85386379.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\n\
+               JVBERi0xLjQK\r\n--b2--\r\n",
+        head(3, "Newsletter", "Content-Type: text/html; charset=iso-8859-1\r\nContent-Transfer-Encoding: quoted-printable")
+            + "\r\n<html><body><style>.x{color:red}</style><p>Neue K=FCchenger=E4te im Angebot</p></body></html>\r\n",
+    ];
+    {
+        let mut s = raw_session(&user).await;
+        for raw in &mails {
+            s.append("INBOX", Some(r"(\Seen)"), None, raw.as_bytes())
+                .await
+                .unwrap();
+        }
+        let _ = s.logout().await;
+    }
+
+    let core = Arc::new(Core::new(
+        Db::open_in_memory().unwrap(),
+        Secrets::from_key(&[9u8; 32]).unwrap(),
+        OAuthConfig::default(),
+        Arc::new(NoEvents),
+    ));
+    let app = App::new(core.clone());
+    let account = app
+        .add_account(
+            NewAccountInput {
+                email: user.clone(),
+                display_name: "Test User".into(),
+                provider_id: None,
+                username: user.clone(),
+                imap: imap_cfg(),
+                smtp: smtp_cfg(),
+                auth: NewAuth::Password {
+                    password: "secret".into(),
+                },
+            },
+            |_| Ok(()),
+        )
+        .await
+        .unwrap()
+        .account;
+
+    let pending = || {
+        core.db
+            .with(|c| {
+                Ok(
+                    c.query_row("SELECT COUNT(*) FROM messages WHERE text_state = 0", [], |r| {
+                        r.get::<_, i64>(0)
+                    })?,
+                )
+            })
+            .unwrap()
+    };
+    eventually("the texts", || {
+        (inbox(&app).len() == 3 && pending() == 0).then_some(())
+    })
+    .await;
+
+    let search = |q: &str| -> Vec<String> {
+        app.list_messages(&View::Search { query: q.into() }, 0, 50, false)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|m| m.subject)
+            .collect()
+    };
+    // Words from the text, never opened.
+    assert_eq!(search("macbook air"), ["Bestellung"]);
+    assert_eq!(search("küchengeräte"), ["Newsletter"]);
+    // The name of an attachment, but not what is inside it.
+    assert_eq!(search("BD85386379"), ["Rechnung"]);
+    // The preview comes from the text, not from the raw HTML.
+    let newsletter = inbox(&app)
+        .into_iter()
+        .find(|m| m.subject == "Newsletter")
+        .unwrap();
+    assert_eq!(newsletter.preview, "Neue Küchengeräte im Angebot");
+
+    // A message whose text is not in the index yet is still found through the server.
+    let order = inbox(&app)
+        .into_iter()
+        .find(|m| m.subject == "Bestellung")
+        .unwrap();
+    core.db
+        .with(|c| {
+            c.execute(
+                "UPDATE messages_fts SET body = '', preview = '' WHERE rowid = ?1",
+                [order.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(search("unterwegs").is_empty());
+    assert!(app.search_server("unterwegs").await.unwrap() >= 1);
+    assert_eq!(search("unterwegs"), ["Bestellung"]);
+
+    app.remove_account(&account.id).unwrap();
+}

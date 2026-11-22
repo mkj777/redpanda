@@ -17,7 +17,7 @@ A minimal desktop mail client for Windows. Gmail, Outlook/Microsoft 365 and any 
 - **Privacy**: mail HTML is sanitized in Rust and shown in a sandboxed frame without scripts; remote images stay blocked until you allow them, per message or per sender
 - **Writing**: plain-text messages, reply, reply all, forward (with the original attachments), attachments, address autocomplete, drafts saved locally while you type, sending from your Gmail "Send mail as" addresses
 - **Newsletters**: "Unsubscribe" next to the sender like in Gmail, with one click where the sender supports it and otherwise by email or on its page, plus a view of every newsletter sender and how often it writes
-- **Search** over everything that has been synced, instantly (SQLite FTS5)
+- **Search** over subjects, senders, recipients, the text of every mail and attachment names, instantly and offline (SQLite FTS5), and on the mail server too (Gmail with its own search)
 - **Keyboard**: `j`/`k` to move, `c` compose, `r`/`a`/`f` reply, reply all, forward, `e` archive, `#` delete, `s` star, `u` read/unread, `/` search
 - **Claude Code and Claude Desktop**: an optional MCP server lets [Claude Code](https://claude.com/claude-code) and Claude Desktop read, search and send your mail through redpanda (below)
 - English and German, light and dark theme following Windows

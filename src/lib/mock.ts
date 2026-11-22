@@ -613,6 +613,9 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
     case "load_older":
       await delay(500);
       return false;
+    case "search_server":
+      await delay(800);
+      return 0;
     case "get_message": {
       await delay(150);
       const m = messages.find((x) => x.id === args.id);

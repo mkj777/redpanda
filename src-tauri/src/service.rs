@@ -19,7 +19,7 @@ use crate::mime;
 use crate::model::*;
 use crate::send::{compose, smtp};
 use crate::store::queries::{self, MessageRef};
-use crate::sync::{imap_conn, Job, RawMail, SyncManager};
+use crate::sync::{imap_conn, Job, RawMail, SearchQuery, SyncManager};
 use crate::unsubscribe::{self, Method as UnsubscribeMethod};
 
 #[derive(Debug, Clone, Serialize)]
@@ -109,7 +109,12 @@ pub struct App {
     pub core: Arc<Core>,
     pub sync: SyncManager,
     oauth_cancel: Mutex<Option<oneshot::Sender<()>>>,
+    /// The last search on the server: what was searched and the local ids it found.
+    server_hits: Mutex<Option<(String, Vec<i64>)>>,
 }
+
+/// How long a search waits for the servers. A slow or offline account must not hold it up.
+const SERVER_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 
 impl App {
     pub fn new(core: Arc<Core>) -> App {
@@ -117,6 +122,7 @@ impl App {
             sync: SyncManager::new(core.clone()),
             core,
             oauth_cancel: Mutex::new(None),
+            server_hits: Mutex::new(None),
         }
     }
 
@@ -369,9 +375,53 @@ impl App {
     }
 
     pub fn list_messages(&self, view: &View, offset: u32, limit: u32, threads: bool) -> Result<MessagePage> {
+        let hits = match view {
+            View::Search { query } => self
+                .server_hits
+                .lock()
+                .ok()
+                .and_then(|h| h.as_ref().filter(|(q, _)| q == query).map(|(_, ids)| ids.clone()))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
         self.core
             .db
-            .with(|c| queries::list_messages(c, view, offset, limit.clamp(1, 500), threads))
+            .with(|c| queries::list_messages_with(c, view, offset, limit.clamp(1, 500), threads, &hits))
+    }
+
+    /// Searches every account on its server as well. The hits show up in the search view from
+    /// then on, next to what the local index finds. Accounts that fail or take too long are left
+    /// out. Returns how many messages the servers found.
+    pub async fn search_server(&self, query: &str) -> Result<usize> {
+        let accounts = self.core.db.with(|c| queries::list_accounts(c))?;
+        let runs = accounts.iter().map(|a| async move {
+            let hits = Arc::new(Mutex::new(Vec::new()));
+            let job = Job::Search {
+                query: SearchQuery(query.to_string()),
+                hits: hits.clone(),
+            };
+            match tokio::time::timeout(SERVER_SEARCH_TIMEOUT, self.sync.run(&a.id, job)).await {
+                Ok(Ok(_)) => hits.lock().map(|h| h.clone()).unwrap_or_default(),
+                Ok(Err(e)) => {
+                    tracing::info!(account = %a.id, "search on the server failed: {e}");
+                    Vec::new()
+                }
+                Err(_) => {
+                    tracing::info!(account = %a.id, "search on the server took too long");
+                    Vec::new()
+                }
+            }
+        });
+        let ids: Vec<i64> = futures::future::join_all(runs)
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+        let n = ids.len();
+        if let Ok(mut h) = self.server_hits.lock() {
+            *h = Some((query.to_string(), ids));
+        }
+        Ok(n)
     }
 
     pub fn open_folder(&self, folder_id: i64) -> Result<()> {

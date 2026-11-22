@@ -48,6 +48,7 @@
   },
   "list": {
     "searchPlaceholder": "Search all mail",
+    "searchingServer": "Searching the mail servers",
     "clearSearch": "Clear search",
     "refresh": "Check for new mail",
     "results": "Search results",

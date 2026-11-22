@@ -270,6 +270,38 @@ pub fn attachment(raw: &[u8], index: u32) -> Option<(String, String, Vec<u8>)> {
     Some((name, mime, bytes))
 }
 
+/// The readable text of one body part fetched on its own: `bytes` still in its transfer
+/// encoding and charset. HTML is turned into text.
+pub fn part_text(bytes: &[u8], subtype: &str, charset: Option<&str>, encoding: &str) -> Option<String> {
+    let clean = |s: &str| {
+        s.chars()
+            .filter(|c| !matches!(c, '"' | '\r' | '\n' | ';'))
+            .collect::<String>()
+    };
+    let mut raw = format!(
+        "Content-Type: text/{}; charset=\"{}\"\r\nContent-Transfer-Encoding: {}\r\n\r\n",
+        clean(subtype),
+        clean(charset.unwrap_or("utf-8")),
+        clean(encoding),
+    )
+    .into_bytes();
+    raw.extend_from_slice(bytes);
+    let msg = MessageParser::default().parse(&raw)?;
+    msg.body_text(0).map(|t| t.into_owned())
+}
+
+/// Decodes RFC 2047 encoded words, as in `=?UTF-8?Q?Rechnung_M=C3=A4rz.pdf?=`.
+pub fn decode_words(s: &str) -> String {
+    if !s.contains("=?") {
+        return s.to_string();
+    }
+    let raw = format!("Subject: {}\r\n\r\n", s.replace(['\r', '\n'], " "));
+    MessageParser::default()
+        .parse(raw.as_bytes())
+        .and_then(|m| m.subject().map(str::to_string))
+        .unwrap_or_else(|| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

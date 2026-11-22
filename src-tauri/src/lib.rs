@@ -256,6 +256,7 @@ pub fn run() {
             commands::open_folder,
             commands::sync_now,
             commands::load_older,
+            commands::search_server,
             commands::get_message,
             commands::get_thread,
             commands::set_flags,

@@ -28,6 +28,8 @@ interface MailState {
   serverHasOlder: boolean;
   loading: boolean;
   loadingOlder: boolean;
+  /** A search is still waiting for the mail servers. */
+  searchingServer: boolean;
   selectedId: number | null;
   /** Newsletter senders, in the subscriptions view. */
   subscriptions: Subscription[];
@@ -58,6 +60,10 @@ function sameView(a: View, b: View) {
 }
 
 let listToken = 0;
+let serverToken = 0;
+let serverSearch: ReturnType<typeof setTimeout> | undefined;
+/** How long typing has to pause before the servers are asked. */
+const SERVER_SEARCH_DELAY = 400;
 
 export function subscriptionKey(s: Pick<Subscription, "accountId" | "sender">) {
   return `${s.accountId}:${s.sender.email.toLowerCase()}`;
@@ -75,6 +81,7 @@ export const useMail = create<MailState>()((set, get) => ({
   serverHasOlder: true,
   loading: false,
   loadingOlder: false,
+  searchingServer: false,
   selectedId: null,
   subscriptions: [],
   selectedSub: null,
@@ -162,11 +169,27 @@ export const useMail = create<MailState>()((set, get) => ({
 
   search: (query) => {
     const q = query.trim();
+    clearTimeout(serverSearch);
     if (!q) {
+      serverToken++;
+      set({ searchingServer: false });
       if (get().view.kind === "search") get().setView(get().lastView);
       return;
     }
+    const current = get().view;
+    if (current.kind === "search" && current.query === q) return;
     get().setView({ kind: "search", query: q });
+    // The servers also know mail whose text is not loaded yet. Their hits join the list once
+    // they answer; asked only after typing pauses, since every account gets a request.
+    const token = ++serverToken;
+    set({ searchingServer: true });
+    serverSearch = setTimeout(async () => {
+      await api.searchServer(q).catch(() => undefined);
+      if (token !== serverToken) return;
+      set({ searchingServer: false });
+      const view = get().view;
+      if (view.kind === "search" && view.query === q) void get().refreshList();
+    }, SERVER_SEARCH_DELAY);
   },
 
   loadMore: async () => {

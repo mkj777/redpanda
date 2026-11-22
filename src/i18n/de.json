@@ -48,6 +48,7 @@
   },
   "list": {
     "searchPlaceholder": "Alle E-Mails durchsuchen",
+    "searchingServer": "Suche auf den Mailservern läuft",
     "clearSearch": "Suche leeren",
     "refresh": "Nach neuen E-Mails suchen",
     "results": "Suchergebnisse",

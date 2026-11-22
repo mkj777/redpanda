@@ -36,7 +36,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 | `folders` | path, role, UIDVALIDITY, UIDNEXT, HIGHESTMODSEQ, unread count |
 | `messages` | envelope data, flags, thread key, preview, size, unsubscribe options |
 | `bodies` | plain text, sanitized HTML, attachment metadata |
-| `messages_fts` | FTS5 index over subject, from, to, preview, body text |
+| `messages_fts` | FTS5 index over subject, from, to, preview, body text and attachment names |
 | `secrets` | encrypted credentials per account |
 | `aliases` | further addresses an account may send from |
 | `drafts` | locally autosaved drafts, with the address they go out from |
@@ -45,7 +45,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 ### `sync/`
 
 - One supervisor task per account, restarted with exponential backoff on errors.
-- Initial sync fetches the newest 500 messages per folder (headers plus a short preview). After every full sync the background worker loads the headers of older mail in batches of 500 until every visible folder is complete, so lists and search cover the whole mailbox. UIDs do not follow dates in every mailbox, so a window of the highest UIDs can miss recent mail. Scrolling past the end of a list still loads older mail on demand.
+- Initial sync fetches the newest 500 messages per folder (headers plus a short preview). After every full sync the background worker loads the headers of older mail in batches of 500 until every visible folder is complete, so lists and search cover the whole mailbox. UIDs do not follow dates in every mailbox, so a window of the highest UIDs can miss recent mail. Scrolling past the end of a list still loads older mail on demand. Once the headers are in, the same worker loads the text of every message for search, see [ADR 0011](adr/0011-full-text-search.md).
 - Incremental sync checks UIDVALIDITY, fetches new UIDs, refreshes flags with CONDSTORE `CHANGEDSINCE` when available (otherwise for the newest window), and detects deletions within the window.
 - A dedicated connection IDLEs on INBOX and syncs it once every time it (re)connects, so mail that arrived while it was down shows up too. Other folders are polled every 5 minutes and when opened.
 - All IMAP connections use TCP keepalive (first probe after 60 s), so one the network dropped silently fails within about 90 seconds and reconnects, instead of an IDLE that stops hearing of new mail.

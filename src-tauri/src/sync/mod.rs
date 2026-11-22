@@ -3,12 +3,13 @@
 //! Every account runs three tasks, each with its own IMAP connection:
 //! - **interactive**: body fetches and user actions, so they never wait behind a long sync
 //! - **background**: full sync on start, every 5 minutes and when IDLE reports changes, and in
-//!   between loads the headers of older mail until every folder is complete
+//!   between loads the headers of older mail and then the text of every message for search
 //! - **idle**: IDLE on INBOX (or polling if the server has no IDLE)
 
 pub mod engine;
 pub mod folders;
 pub mod imap_conn;
+pub mod text;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -68,11 +69,26 @@ pub enum Job {
     CreateFolder {
         path: String,
     },
+    /// Searches the account on the server and puts the local ids of the hits into `hits`.
+    Search {
+        query: SearchQuery,
+        hits: Arc<Mutex<Vec<i64>>>,
+    },
     Append {
         folder_path: String,
         raw: RawMail,
         flags: String,
     },
+}
+
+/// What someone searched for. Shows only its length when debug-printed, so a failed job never
+/// writes it into the log file.
+pub struct SearchQuery(pub String);
+
+impl std::fmt::Debug for SearchQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{} chars>", self.0.chars().count())
+    }
 }
 
 /// A whole message to upload. Shows only its size when debug-printed, so a failed job never
@@ -290,6 +306,13 @@ async fn run_job(conn: &mut Conn, job: &Job) -> Result<bool> {
         Job::LoadOlder { folder_id } => engine::load_older(conn, *folder_id, engine::OLDER_BATCH).await,
         Job::SyncFolder { folder_id } => engine::sync_folder_by_id(conn, *folder_id).await,
         Job::CreateFolder { path } => engine::create_folder(conn, path).await.map(|_| true),
+        Job::Search { query, hits } => {
+            let found = engine::search_server(conn, &query.0).await?;
+            if let Ok(mut h) = hits.lock() {
+                *h = found;
+            }
+            Ok(true)
+        }
         Job::Append {
             folder_path,
             raw,
@@ -364,7 +387,7 @@ async fn background_worker(
             None if backfill => match rx.try_recv() {
                 Ok(c) => c,
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    match engine::backfill_step(&mut conn, &mut skip).await {
+                    match engine::fill_in_step(&mut conn, &mut skip).await {
                         Ok(more) => backfill = more,
                         Err(e) => {
                             // Tried again after the next full sync.

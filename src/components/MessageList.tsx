@@ -152,8 +152,22 @@ function Empty({ text }: { text: string }) {
 
 export function MessageList() {
   const { t } = useTranslation();
-  const { view, messages, hasMore, serverHasOlder, loading, loadingOlder, selectedId, select, loadMore, search, accounts, folders } =
-    useMail();
+  const {
+    view,
+    messages,
+    hasMore,
+    serverHasOlder,
+    loading,
+    loadingOlder,
+    searchingServer,
+    selectedId,
+    select,
+    loadMore,
+    search,
+    accounts,
+    folders,
+  } = useMail();
+  const waitingForServer = view.kind === "search" && searchingServer;
   const [query, setQuery] = useState(view.kind === "search" ? view.query : "");
   const parentRef = useRef<HTMLDivElement>(null);
   const { title, sub } = useViewTitle();
@@ -222,6 +236,11 @@ export function MessageList() {
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">
         <span className="truncate text-[13px] font-semibold">{title}</span>
         {sub && <span className="truncate text-xs text-muted">{sub}</span>}
+        {waitingForServer && (
+          <span title={t("list.searchingServer")} aria-label={t("list.searchingServer")} className="flex text-faint">
+            <Spinner className="size-3.5" />
+          </span>
+        )}
         <span className="flex-1" />
         <IconButton
           label={t("list.refresh")}
@@ -239,7 +258,7 @@ export function MessageList() {
         <SubscriptionList />
       ) : view.kind === "drafts" ? (
         <DraftList />
-      ) : loading && !messages.length ? (
+      ) : (loading || waitingForServer) && !messages.length ? (
         <div className="flex flex-1 items-center justify-center">
           <Spinner />
         </div>
