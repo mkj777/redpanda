@@ -422,27 +422,37 @@ export async function pickFiles(): Promise<string[]> {
 
 const DOWNLOAD_DIR_KEY = "redpanda-download-dir";
 
-/** Asks where to save an attachment: the Downloads folder the first time, then the folder used last. */
+function lastDownloadDir(): string | null {
+  try {
+    return localStorage.getItem(DOWNLOAD_DIR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Asks where to save an attachment: in Downloads the first time, then in the folder an
+ * attachment was last saved to, as long as it still exists.
+ */
 export async function pickDownloadPath(filename: string): Promise<string | null> {
   if (!isTauri) return null;
+  const defaultPath = await call<string>("attachment_save_path", { filename, lastDir: lastDownloadDir() });
   const { save } = await import("@tauri-apps/plugin-dialog");
-  const { downloadDir, join, dirname } = await import("@tauri-apps/api/path");
-  let dir: string | null = null;
+  return save({ defaultPath });
+}
+
+/** Remembers the folder of an attachment that was saved, or forgets it after a failed save. */
+export async function rememberDownloadDir(savedPath: string | null) {
   try {
-    dir = localStorage.getItem(DOWNLOAD_DIR_KEY);
-  } catch {
-    // No storage: start in Downloads every time.
-  }
-  dir ??= await downloadDir().catch(() => null);
-  const path = await save({ defaultPath: dir ? await join(dir, filename) : filename });
-  if (path) {
-    try {
-      localStorage.setItem(DOWNLOAD_DIR_KEY, await dirname(path));
-    } catch {
-      // Only a convenience.
+    if (savedPath) {
+      const { dirname } = await import("@tauri-apps/api/path");
+      localStorage.setItem(DOWNLOAD_DIR_KEY, await dirname(savedPath));
+    } else {
+      localStorage.removeItem(DOWNLOAD_DIR_KEY);
     }
+  } catch {
+    // Only a convenience.
   }
-  return path;
 }
 
 export async function pickSavePath(defaultName: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null> {

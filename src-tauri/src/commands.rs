@@ -167,6 +167,29 @@ pub fn save_attachment(state: AppState<'_>, message_id: i64, index: u32, path: S
     state.save_attachment(message_id, index, &path)
 }
 
+/// The path the save dialog for an attachment starts with, see `suggest_save_path`. Checking a
+/// folder on a network share that is offline can take a while, so it runs off the main thread.
+#[tauri::command]
+pub async fn attachment_save_path(
+    app: AppHandle,
+    filename: String,
+    last_dir: Option<String>,
+) -> Result<String> {
+    use tauri::Manager;
+    let downloads = app.path().download_dir().ok();
+    tokio::task::spawn_blocking(move || {
+        crate::service::suggest_save_path(
+            last_dir.as_deref().map(std::path::Path::new),
+            downloads.as_deref(),
+            &filename,
+        )
+        .to_string_lossy()
+        .into_owned()
+    })
+    .await
+    .map_err(|e| AppError::Other(e.to_string()))
+}
+
 #[tauri::command]
 pub async fn export_pdf(
     app: AppHandle,

@@ -267,6 +267,7 @@ pub fn run() {
             commands::list_subscriptions,
             commands::unsubscribe,
             commands::save_attachment,
+            commands::attachment_save_path,
             commands::open_attachment,
             commands::export_pdf,
             commands::send_message,

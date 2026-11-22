@@ -2,7 +2,7 @@
 //! from integration tests.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -1146,5 +1146,85 @@ mod tests {
         assert_eq!(json["method"], "one_click");
         assert_eq!(json["hasPage"], true);
         assert!(json["unsubscribedAt"].is_null());
+    }
+}
+
+/// Where the save dialog for an attachment starts: the folder used last while it still exists,
+/// otherwise `fallback` (Downloads). The name never reads as a folder, since the dialog would
+/// open inside that folder with an empty name.
+pub fn suggest_save_path(last_dir: Option<&Path>, fallback: Option<&Path>, filename: &str) -> PathBuf {
+    let name = filename.trim();
+    let name = if name.chars().all(|c| c == '.') {
+        "attachment"
+    } else {
+        name
+    };
+    let Some(dir) = last_dir.filter(|d| d.is_absolute() && d.is_dir()).or(fallback) else {
+        return PathBuf::from(name);
+    };
+    let path = dir.join(name);
+    if !path.is_dir() {
+        return path;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
+        _ => (name, String::new()),
+    };
+    (1..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.is_dir())
+        .expect("a free name")
+}
+
+#[cfg(test)]
+mod save_path_tests {
+    use super::*;
+
+    #[test]
+    fn starts_in_the_last_folder_while_it_exists() {
+        let tmp = std::env::temp_dir().join(format!("redpanda-save-{}", uuid::Uuid::new_v4().simple()));
+        let last = tmp.join("last");
+        let downloads = tmp.join("Downloads");
+        std::fs::create_dir_all(&last).unwrap();
+        std::fs::create_dir_all(&downloads).unwrap();
+
+        assert_eq!(
+            suggest_save_path(Some(&last), Some(&downloads), "a.pdf"),
+            last.join("a.pdf")
+        );
+        // Gone (a removed stick), or never saved: Downloads.
+        let gone = tmp.join("gone");
+        assert_eq!(
+            suggest_save_path(Some(&gone), Some(&downloads), "a.pdf"),
+            downloads.join("a.pdf")
+        );
+        assert_eq!(
+            suggest_save_path(None, Some(&downloads), "a.pdf"),
+            downloads.join("a.pdf")
+        );
+        assert_eq!(suggest_save_path(None, None, "a.pdf"), PathBuf::from("a.pdf"));
+
+        // Names that would read as a folder.
+        assert_eq!(
+            suggest_save_path(None, Some(&downloads), ".."),
+            downloads.join("attachment")
+        );
+        assert_eq!(
+            suggest_save_path(None, Some(&downloads), " . "),
+            downloads.join("attachment")
+        );
+        std::fs::create_dir_all(downloads.join("Invoices")).unwrap();
+        std::fs::create_dir_all(downloads.join("Invoices (1)")).unwrap();
+        assert_eq!(
+            suggest_save_path(None, Some(&downloads), "Invoices"),
+            downloads.join("Invoices (2)")
+        );
+        std::fs::create_dir_all(downloads.join("x.zip")).unwrap();
+        assert_eq!(
+            suggest_save_path(None, Some(&downloads), "x.zip"),
+            downloads.join("x (1).zip")
+        );
+
+        std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

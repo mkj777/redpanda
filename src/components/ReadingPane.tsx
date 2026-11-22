@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
-import { api, pickDownloadPath, pickSavePath, type MessageDetail, type MessageSummary } from "@/lib/ipc";
+import { api, pickDownloadPath, pickSavePath, rememberDownloadDir, type MessageDetail, type MessageSummary } from "@/lib/ipc";
 import { cn, displayName, fileSize, fullDate } from "@/lib/format";
 import { archive, markSeen, moveTo, remove, reply, reportError, toggleFlagged, toggleSeen } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
@@ -59,8 +59,19 @@ function Attachments({ msg }: { msg: MessageDetail }) {
               label={t("reader.save")}
               className="size-7"
               onClick={async () => {
-                const path = await pickDownloadPath(a.filename);
-                if (path) await api.saveAttachment(msg.id, a.index, path).catch(reportError);
+                try {
+                  const path = await pickDownloadPath(a.filename);
+                  if (!path) return;
+                  try {
+                    await api.saveAttachment(msg.id, a.index, path);
+                  } catch (e) {
+                    await rememberDownloadDir(null);
+                    throw e;
+                  }
+                  await rememberDownloadDir(path);
+                } catch (e) {
+                  reportError(e);
+                }
               }}
             >
               <Download size={14} />
@@ -338,9 +349,13 @@ function Conversation({ summary }: { summary: MessageSummary }) {
         <IconButton
           label={t("action.exportPdf")}
           onClick={async () => {
-            const name = (latest.subject || t("list.noSubject")).replace(/[\/:*?"<>|]+/g, " ").trim().slice(0, 80);
-            const path = await pickSavePath(`${name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
-            if (path) await api.exportPdf(latest.id, path, autoLoad).catch(reportError);
+            try {
+              const name = (latest.subject || t("list.noSubject")).replace(/[\/:*?"<>|]+/g, " ").trim().slice(0, 80);
+              const path = await pickSavePath(`${name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
+              if (path) await api.exportPdf(latest.id, path, autoLoad);
+            } catch (e) {
+              reportError(e);
+            }
           }}
         >
           <FileDown size={16} />
