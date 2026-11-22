@@ -789,10 +789,14 @@ impl App {
 
     /// Writes the attachment to a temporary file, to open it with the default app or drag it
     /// out of the window. A copy from before is used again while it is unchanged: a PDF open in
-    /// a viewer is locked against writing, and dragging it out should still work.
+    /// a viewer is locked against writing, and dragging it out should still work. Each
+    /// attachment gets its own folder, since two of one mail can carry the same name.
     pub fn attachment_temp_file(&self, message_id: i64, index: u32) -> Result<PathBuf> {
         let (name, _, bytes) = self.attachment(message_id, index)?;
-        let dir = std::env::temp_dir().join("redpanda").join(message_id.to_string());
+        let dir = std::env::temp_dir()
+            .join("redpanda")
+            .join(message_id.to_string())
+            .join(index.to_string());
         std::fs::create_dir_all(&dir).map_err(|e| AppError::Other(e.to_string()))?;
         let path = dir.join(name);
         if std::fs::read(&path).is_ok_and(|old| old == bytes) {
@@ -1301,12 +1305,19 @@ mod tests {
 }
 
 /// Refuses files that run code when opened, see [`BLOCKED_EXTENSIONS`]. Saving them is fine.
+/// The extension is the one Windows goes by: what follows the last dot, also when that dot starts
+/// the name (".bat" is a batch file, while `Path::extension` sees none), after the trailing dots
+/// and spaces Windows drops.
 pub fn check_openable(path: &Path) -> Result<()> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
-    if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
+    let ext = name
+        .trim_end_matches(['.', ' '])
+        .rsplit_once('.')
+        .map_or("", |(_, ext)| ext);
+    if BLOCKED_EXTENSIONS.contains(&ext) {
         return Err(AppError::Invalid("blocked_file_type".into()));
     }
     Ok(())
@@ -1386,5 +1397,11 @@ mod download_tests {
         assert!(check_openable(Path::new(r"C:\tmp\bill.pdf")).is_ok());
         assert!(check_openable(Path::new(r"C:\tmp\setup.EXE")).is_err());
         assert!(check_openable(Path::new(r"C:\tmp\x.lnk")).is_err());
+        // Windows reads ".bat" as a batch file, and drops trailing dots and spaces.
+        assert!(check_openable(Path::new(r"C:\tmp\.bat")).is_err());
+        assert!(check_openable(Path::new(r"C:\tmp\.LNK")).is_err());
+        assert!(check_openable(Path::new(r"C:\tmp\bill.exe. ")).is_err());
+        assert!(check_openable(Path::new(r"C:\tmp\.profile")).is_ok());
+        assert!(check_openable(Path::new(r"C:\tmp\notes")).is_ok());
     }
 }

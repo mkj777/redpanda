@@ -76,11 +76,13 @@ export async function toggleFlagged(msgs: MessageSummary[]) {
   if (!msgs.length) return;
   const value = !msgs.every((m) => m.flagged);
   try {
+    // A conversation row shows a star when any of its mails has one, so removing it takes the
+    // whole conversation; a new star goes on the mail itself.
     await api.setFlags(
       msgs.map((m) => m.id),
       "flagged",
       value,
-      false,
+      value ? false : threadsFor(),
     );
   } catch (e) {
     reportError(e);

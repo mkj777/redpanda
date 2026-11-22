@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 use crate::error::AppError;
 use crate::model::{Address, Draft, MessageSummary, UnifiedView, View};
-use crate::service::{App, BLOCKED_EXTENSIONS};
+use crate::service::{check_openable, App};
 
 /// Longest message text handed out in one piece.
 const MAX_TEXT_CHARS: usize = 60_000;
@@ -405,7 +405,7 @@ impl MailTools {
                 return to_json(json!({ "filename": name, "mimeType": mime, "text": text }));
             }
         }
-        if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
+        if check_openable(Path::new(&name)).is_err() {
             return Err("this file type is not handed out".into());
         }
         let file = Path::new(&name)

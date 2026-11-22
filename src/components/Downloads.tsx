@@ -7,7 +7,8 @@ import { cn, fileSize, listDate } from "@/lib/format";
 import { fileDrag, onFile, useDownloads } from "@/stores/downloads";
 
 /** A small button inside a list entry. It keeps its clicks to itself, so the entry around it
- * doesn't open the file as well. */
+ * doesn't open the file as well. The press itself goes through: the menu tells outside clicks
+ * from inside ones by it, and without it the next click outside would not close the list. */
 function EntryButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   const own = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
@@ -15,7 +16,6 @@ function EntryButton({ label, onClick, children }: { label: string; onClick: () 
       type="button"
       aria-label={label}
       title={label}
-      onPointerDown={own}
       onPointerUp={own}
       onClick={(e) => {
         e.stopPropagation();
@@ -98,6 +98,9 @@ export function DownloadsButton() {
           align="end"
           sideOffset={4}
           collisionPadding={8}
+          // The button stays out of focus like the caption buttons. Focused after closing, it
+          // would open the list again on the arrow keys meant for the mail list.
+          onCloseAutoFocus={(e) => e.preventDefault()}
           className="z-50 w-80 rounded-md border border-line bg-surface p-1 shadow-[0_2px_8px_rgba(0,0,0,0.1)]"
         >
           <Menu.Label className="px-2 pb-1 pt-1.5 text-xs font-semibold text-muted">{t("downloads.title")}</Menu.Label>

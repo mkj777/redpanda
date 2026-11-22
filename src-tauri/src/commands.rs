@@ -190,10 +190,18 @@ pub async fn export_pdf(
     .await
 }
 
+/// Runs file work off the main thread, where a synchronous command would run it: a file on an
+/// offline network share can take a while, and the window would freeze meanwhile.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
 #[tauri::command]
-pub fn open_attachment(app: AppHandle, state: AppState<'_>, message_id: i64, index: u32) -> Result<()> {
-    let path = state.attachment_temp_file(message_id, index)?;
-    open_file(&app, &path)
+pub async fn open_attachment(app: AppHandle, state: AppState<'_>, message_id: i64, index: u32) -> Result<()> {
+    let svc = state.inner().clone();
+    blocking(move || open_file(&app, &svc.attachment_temp_file(message_id, index)?)).await
 }
 
 fn open_file(app: &AppHandle, path: &std::path::Path) -> Result<()> {
@@ -208,18 +216,14 @@ fn open_file(app: &AppHandle, path: &std::path::Path) -> Result<()> {
 pub async fn download_attachment(state: AppState<'_>, message_id: i64, index: u32) -> Result<Download> {
     let dir = dirs::download_dir().ok_or_else(|| AppError::Other("no Downloads folder".into()))?;
     let app = state.inner().clone();
-    tokio::task::spawn_blocking(move || app.download_attachment(message_id, index, &dir))
-        .await
-        .map_err(|e| AppError::Other(e.to_string()))?
+    blocking(move || app.download_attachment(message_id, index, &dir)).await
 }
 
 /// Checks every file of the list on disk; one on an offline network share can take a while.
 #[tauri::command]
 pub async fn list_downloads(state: AppState<'_>) -> Result<Vec<Download>> {
     let app = state.inner().clone();
-    tokio::task::spawn_blocking(move || app.list_downloads())
-        .await
-        .map_err(|e| AppError::Other(e.to_string()))?
+    blocking(move || app.list_downloads()).await
 }
 
 #[tauri::command]
@@ -233,17 +237,21 @@ pub fn clear_downloads(state: AppState<'_>) -> Result<()> {
 }
 
 #[tauri::command]
-pub fn open_download(app: AppHandle, state: AppState<'_>, id: i64) -> Result<()> {
-    open_file(&app, &state.download_file(id)?)
+pub async fn open_download(app: AppHandle, state: AppState<'_>, id: i64) -> Result<()> {
+    let svc = state.inner().clone();
+    blocking(move || open_file(&app, &svc.download_file(id)?)).await
 }
 
 /// Opens Explorer with the downloaded file selected.
 #[tauri::command]
-pub fn reveal_download(app: AppHandle, state: AppState<'_>, id: i64) -> Result<()> {
-    let path = state.download_file(id)?;
-    app.opener()
-        .reveal_item_in_dir(path)
-        .map_err(|e| AppError::Other(e.to_string()))
+pub async fn reveal_download(app: AppHandle, state: AppState<'_>, id: i64) -> Result<()> {
+    let svc = state.inner().clone();
+    blocking(move || {
+        app.opener()
+            .reveal_item_in_dir(svc.download_file(id)?)
+            .map_err(|e| AppError::Other(e.to_string()))
+    })
+    .await
 }
 
 /// Drags an attachment out of the window as a file, from a copy in the temp folder.
@@ -254,15 +262,59 @@ pub async fn drag_attachment(
     message_id: i64,
     index: u32,
 ) -> Result<()> {
-    let path = state.attachment_temp_file(message_id, index)?;
+    let svc = state.inner().clone();
+    let path = blocking(move || svc.attachment_temp_file(message_id, index)).await?;
     drag_out(window, path).await
 }
 
 /// Drags a downloaded file out of the window.
 #[tauri::command]
 pub async fn drag_download(window: tauri::Window, state: AppState<'_>, id: i64) -> Result<()> {
-    let path = state.download_file(id)?;
+    let svc = state.inner().clone();
+    let path = blocking(move || svc.download_file(id)).await?;
     drag_out(window, path).await
+}
+
+/// Whether the shell can take `path` for a drag. The drag crate canonicalizes the path, keeps the
+/// `\\?\` form whenever it can't drop it safely (network paths, paths over 260 units, odd names)
+/// and unwraps what `ILCreateFromPathW` makes of it, which is nothing for `\\?\` paths: the panic
+/// would end the whole app (`panic = "abort"`). These are the cases where it drops the prefix.
+#[cfg(windows)]
+fn shell_can_drag(path: &std::path::Path) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Component, Prefix};
+    const DEVICES: [&str; 22] = [
+        "AUX", "NUL", "PRN", "CON", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    let units = |s: &OsStr| s.encode_wide().count();
+    let plain_name = |name: &OsStr| {
+        let Some(n) = name.to_str() else {
+            return false;
+        };
+        let stem = std::path::Path::new(n)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .trim_end_matches(['.', ' ']);
+        !n.is_empty()
+            && units(name) <= 255
+            && !n.ends_with(['.', ' '])
+            && !n.bytes().any(|c| c < 32 || br#"<>:"/\|?*"#.contains(&c))
+            && !DEVICES.iter().any(|d| stem.eq_ignore_ascii_case(d))
+    };
+    let Ok(canonical) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    let mut parts = canonical.components();
+    matches!(parts.next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::VerbatimDisk(_)))
+        && parts.all(|part| match part {
+            Component::RootDir => true,
+            Component::Normal(name) => plain_name(name),
+            _ => false,
+        })
+        && units(canonical.as_os_str()) <= 260
 }
 
 /// Runs a native drag of `path` until it is dropped or cancelled. Only ever copies, so dropping
@@ -271,6 +323,17 @@ pub async fn drag_download(window: tauri::Window, state: AppState<'_>, id: i64) 
 #[cfg(windows)]
 async fn drag_out(window: tauri::Window, path: std::path::PathBuf) -> Result<()> {
     const PREVIEW: &[u8] = include_bytes!("../assets/drag-file.png");
+    let path = blocking(move || {
+        if shell_can_drag(&path) {
+            Ok(path)
+        } else {
+            Err(AppError::Other(format!(
+                "{} can't be dragged from there (a network folder or a very long path)",
+                path.display()
+            )))
+        }
+    })
+    .await?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let target = window.clone();
     window

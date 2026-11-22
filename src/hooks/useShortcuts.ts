@@ -9,11 +9,18 @@ function isTyping(target: EventTarget | null) {
   return el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
 }
 
-/** Gmail-style single key shortcuts. Inactive while typing or while a dialog is open. */
+/** A menu is open (right-click menu, download list, move menu): its arrows, typeahead letters
+ * and Delete belong to it, not to the selected mail. */
+function menuOpen() {
+  return document.querySelector('[role="menu"]') !== null;
+}
+
+/** Gmail-style single key shortcuts. Inactive while typing, while a dialog or a menu is open, and
+ * for keys something else already handled, such as Escape closing a menu. */
 export function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || menuOpen()) return;
       const ui = useUi.getState();
       if (ui.composer || ui.wizardOpen || ui.settingsOpen || ui.unsubscribe) return;
       const mail = useMail.getState();

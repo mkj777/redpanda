@@ -224,15 +224,26 @@ pub fn parse_body(raw: &[u8]) -> ParsedBody {
     }
 }
 
-/// Longest file name kept, in characters. Windows allows 255, the rest is room for " (12)".
+/// Longest file name kept, in UTF-16 units as Windows counts them (an emoji takes two). Windows
+/// allows 255, the rest is room for " (12)".
 const MAX_NAME: usize = 180;
 
 /// A file name from a mail that is safe to write on Windows, or `None` when nothing usable is
 /// left. The name comes from the sender, so it never leaves the folder it is written to, never
 /// names a device, and keeps the extension Windows will see: trailing dots and spaces, which
-/// Windows drops, go first, so "bill.exe." can't pass as a file without an extension.
+/// Windows drops, go first (with trailing whitespace and line breaks an encoded name can carry),
+/// so "bill.exe." can't pass as a file without an extension. Bidi controls go too, so "bill
+/// U+202E fdp.exe" can't show as "billexe.pdf".
 pub fn safe_file_name(name: &str) -> Option<String> {
-    let cleaned: String = name
+    let without_bidi: String = name
+        .chars()
+        .filter(|c| {
+            !matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        })
+        .collect();
+    let cleaned: String = without_bidi
+        .trim_start()
+        .trim_end_matches(|c: char| c == '.' || c.is_whitespace())
         .chars()
         .map(|c| {
             if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
@@ -250,8 +261,18 @@ pub fn safe_file_name(name: &str) -> Option<String> {
         Some((stem, ext)) if !stem.is_empty() && ext.chars().count() <= 16 => (stem, Some(ext)),
         _ => (cleaned, None),
     };
-    let ext_len = ext.map_or(0, |e| e.chars().count() + 1);
-    let stem: String = stem.chars().take(MAX_NAME.saturating_sub(ext_len)).collect();
+    let ext_len = ext.map_or(0, |e| e.encode_utf16().count() + 1);
+    let mut room = MAX_NAME.saturating_sub(ext_len);
+    let stem: String = stem
+        .chars()
+        .take_while(|c| {
+            let fits = c.len_utf16() <= room;
+            if fits {
+                room -= c.len_utf16();
+            }
+            fits
+        })
+        .collect();
     let stem = stem.trim_end_matches(['.', ' ']);
     let stem = if stem.is_empty() { "_" } else { stem };
     // CON, NUL, COM1 and the like open a device instead of a file, whatever the extension.
@@ -475,6 +496,15 @@ JVBERi0xLjQK\r\n\
         // Windows drops trailing dots and spaces, so the extension it sees is the one checked.
         assert_eq!(safe("bill.exe. . ").as_deref(), Some("bill.exe"));
         assert_eq!(safe("a\u{0}b\r\n.txt").as_deref(), Some("a_b__.txt"));
+        // Trailing whitespace and line breaks of an encoded name stay out of the extension.
+        assert_eq!(safe("report.pdf\r\n").as_deref(), Some("report.pdf"));
+        assert_eq!(safe("report.pdf\u{a0}").as_deref(), Some("report.pdf"));
+        assert_eq!(safe("report.pdf\r\n.").as_deref(), Some("report.pdf"));
+        // Bidi controls can't make "exe" read as "pdf".
+        assert_eq!(
+            safe("Rechnung\u{202E}fdp.exe").as_deref(),
+            Some("Rechnungfdp.exe")
+        );
         // Device names, with any extension and any case.
         assert_eq!(safe("con").as_deref(), Some("_con"));
         assert_eq!(safe("NUL.txt").as_deref(), Some("_NUL.txt"));
@@ -487,5 +517,9 @@ JVBERi0xLjQK\r\n\
         let cut = safe(&long).unwrap();
         assert_eq!(cut.chars().count(), MAX_NAME);
         assert!(cut.ends_with("x.pdf"));
+        // The limit counts UTF-16 units, as Windows does: an emoji takes two.
+        let emoji = safe(&format!("{}.pdf", "\u{1F600}".repeat(130))).unwrap();
+        assert!(emoji.encode_utf16().count() <= MAX_NAME);
+        assert!(emoji.ends_with("\u{1F600}.pdf"));
     }
 }
