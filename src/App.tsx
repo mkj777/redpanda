@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import i18n, { resolveLanguage } from "@/i18n";
 import { api, listen } from "@/lib/ipc";
 import { compose, composeMailto, errorText, installUpdate } from "@/lib/actions";
+import { useDownloads } from "@/stores/downloads";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { useUi } from "@/stores/ui";
@@ -92,6 +93,11 @@ function useBackendEvents() {
         }),
       ),
     ];
+    // The download list, and again whenever redpanda comes back to the front, since files may
+    // have been deleted in Explorer meanwhile.
+    const downloads = () => void useDownloads.getState().refresh();
+    downloads();
+    window.addEventListener("focus", downloads);
     mail
       .refreshAll()
       .finally(() => setReady(true))
@@ -101,6 +107,7 @@ function useBackendEvents() {
       .catch(() => undefined);
     return () => {
       clearTimeout(timer);
+      window.removeEventListener("focus", downloads);
       subs.forEach((p) => p.then((unlisten) => unlisten()));
     };
   }, []);

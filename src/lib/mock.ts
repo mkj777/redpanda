@@ -4,6 +4,7 @@
 import type {
   Account,
   Address,
+  Download,
   Draft,
   Folder,
   FolderRole,
@@ -458,6 +459,18 @@ function moveTo(ids: number[], role: FolderRole | number) {
   }
 }
 
+let downloads: Download[] = [];
+let downloadSeq = 1;
+
+/** "name (1).pdf" style names, as the backend gives a file whose name is taken. */
+function freeName(name: string) {
+  const taken = new Set(downloads.map((d) => d.name));
+  if (!taken.has(name)) return name;
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let n = 1; ; n++) if (!taken.has(`${stem} (${n})${ext}`)) return `${stem} (${n})${ext}`;
+}
+
 const appSettings = { closeToTray: true, autostart: true };
 const defaultMail = { isDefault: false, ask: true };
 
@@ -650,6 +663,9 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
     case "delete_messages":
       moveTo(args.ids as number[], "trash");
       return null;
+    case "mark_junk":
+      moveTo(args.ids as number[], args.junk ? "junk" : "inbox");
+      return null;
     case "archive_messages": {
       const ids = args.ids as number[];
       const m = messages.find((x) => x.id === ids[0]);
@@ -684,9 +700,42 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
     }
     case "allow_remote_content":
     case "export_pdf":
-    case "save_attachment":
     case "open_attachment":
+    case "drag_attachment":
       return null;
+    case "download_attachment": {
+      await delay(300);
+      const detail = messages.find((x) => x.id === args.messageId);
+      const att = detail?.attachments.find((a) => a.index === args.index);
+      if (!att) throw { code: "not_found", message: "attachment" };
+      const d: Download = {
+        id: downloadSeq++,
+        messageId: args.messageId as number,
+        index: att.index,
+        name: freeName(att.filename),
+        size: att.size,
+        createdAt: Math.floor(Date.now() / 1000),
+        exists: true,
+      };
+      downloads = [d, ...downloads].slice(0, 20);
+      return structuredClone(d);
+    }
+    case "list_downloads":
+      return structuredClone(downloads);
+    case "remove_download":
+      downloads = downloads.filter((d) => d.id !== args.id);
+      return null;
+    case "clear_downloads":
+      downloads = [];
+      return null;
+    case "open_download":
+    case "reveal_download":
+    case "drag_download": {
+      const d = downloads.find((x) => x.id === args.id);
+      if (!d) throw { code: "not_found", message: "download" };
+      if (!d.exists) throw { code: "invalid", message: "file_gone" };
+      return null;
+    }
     case "send_message": {
       await delay(900);
       const d = args.draft as Draft;

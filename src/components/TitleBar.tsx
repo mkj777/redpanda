@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next";
 import { api, isTauri, listen, type CaptionState } from "@/lib/ipc";
 import { cn } from "@/lib/format";
+import { DownloadsButton } from "./Downloads";
 
 // Segoe Fluent Icons on Windows 11, Segoe MDL2 Assets on Windows 10: same code points as the system buttons.
 const GLYPH = { minimize: "\uE921", maximize: "\uE922", restore: "\uE923", close: "\uE8BB" };
@@ -100,6 +101,7 @@ export function TitleBar() {
     >
       <div className="drag h-full flex-1" />
       <div className="no-drag flex h-full">
+        <DownloadsButton />
         <CaptionButton label={t("window.minimize")} glyph={GLYPH.minimize} onClick={run((w) => w.minimize())} />
         <CaptionButton
           ref={maxRef}

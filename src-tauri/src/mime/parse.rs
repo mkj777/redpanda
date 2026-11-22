@@ -224,21 +224,61 @@ pub fn parse_body(raw: &[u8]) -> ParsedBody {
     }
 }
 
+/// Longest file name kept, in characters. Windows allows 255, the rest is room for " (12)".
+const MAX_NAME: usize = 180;
+
+/// A file name from a mail that is safe to write on Windows, or `None` when nothing usable is
+/// left. The name comes from the sender, so it never leaves the folder it is written to, never
+/// names a device, and keeps the extension Windows will see: trailing dots and spaces, which
+/// Windows drops, go first, so "bill.exe." can't pass as a file without an extension.
+pub fn safe_file_name(name: &str) -> Option<String> {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_start().trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() {
+        return None;
+    }
+    let (stem, ext) = match cleaned.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && ext.chars().count() <= 16 => (stem, Some(ext)),
+        _ => (cleaned, None),
+    };
+    let ext_len = ext.map_or(0, |e| e.chars().count() + 1);
+    let stem: String = stem.chars().take(MAX_NAME.saturating_sub(ext_len)).collect();
+    let stem = stem.trim_end_matches(['.', ' ']);
+    let stem = if stem.is_empty() { "_" } else { stem };
+    // CON, NUL, COM1 and the like open a device instead of a file, whatever the extension.
+    let device = stem.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    let numbered = |prefix: &str| {
+        device.strip_prefix(prefix).is_some_and(|n| {
+            matches!(
+                n,
+                "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+    };
+    let reserved = matches!(
+        device.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || numbered("COM")
+        || numbered("LPT");
+    let prefix = if reserved { "_" } else { "" };
+    Some(match ext {
+        Some(ext) => format!("{prefix}{stem}.{ext}"),
+        None => format!("{prefix}{stem}"),
+    })
+}
+
 fn attachment_name(part: &mail_parser::MessagePart, index: usize, mime: &str) -> String {
-    if let Some(name) = part.attachment_name() {
-        let cleaned: String = name
-            .chars()
-            .map(|c| {
-                if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                    '_'
-                } else {
-                    c
-                }
-            })
-            .collect();
-        if !cleaned.trim().is_empty() {
-            return cleaned.trim().to_string();
-        }
+    if let Some(name) = part.attachment_name().and_then(safe_file_name) {
+        return name;
     }
     if matches!(part.body, PartType::Message(_)) {
         return format!("message-{}.eml", index + 1);
@@ -417,5 +457,35 @@ JVBERi0xLjQK\r\n\
 
         let h = parse_header(MULTIPART.as_bytes(), None);
         assert!(h.has_attachments);
+    }
+
+    #[test]
+    fn file_names_from_mail_are_safe_to_write() {
+        let safe = |s: &str| safe_file_name(s);
+        assert_eq!(safe("Rechnung März.pdf").as_deref(), Some("Rechnung März.pdf"));
+        // Never leaves the folder.
+        assert_eq!(safe("../../evil.pdf").as_deref(), Some(".._.._evil.pdf"));
+        assert_eq!(
+            safe(r"..\..\Startup\x.lnk").as_deref(),
+            Some(".._.._Startup_x.lnk")
+        );
+        assert_eq!(safe("C:evil.txt").as_deref(), Some("C_evil.txt"));
+        assert_eq!(safe(".."), None);
+        assert_eq!(safe(" . "), None);
+        // Windows drops trailing dots and spaces, so the extension it sees is the one checked.
+        assert_eq!(safe("bill.exe. . ").as_deref(), Some("bill.exe"));
+        assert_eq!(safe("a\u{0}b\r\n.txt").as_deref(), Some("a_b__.txt"));
+        // Device names, with any extension and any case.
+        assert_eq!(safe("con").as_deref(), Some("_con"));
+        assert_eq!(safe("NUL.txt").as_deref(), Some("_NUL.txt"));
+        assert_eq!(safe("com1.tar.gz").as_deref(), Some("_com1.tar.gz"));
+        assert_eq!(safe("lpt².pdf").as_deref(), Some("_lpt².pdf"));
+        assert_eq!(safe("console.txt").as_deref(), Some("console.txt"));
+        assert_eq!(safe("COM10.txt").as_deref(), Some("COM10.txt"));
+        // Long names keep their extension.
+        let long = format!("{}.pdf", "x".repeat(400));
+        let cut = safe(&long).unwrap();
+        assert_eq!(cut.chars().count(), MAX_NAME);
+        assert!(cut.ends_with("x.pdf"));
     }
 }

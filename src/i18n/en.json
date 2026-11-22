@@ -72,13 +72,20 @@
     "star": "Star",
     "unstar": "Remove star",
     "markRead": "Mark as read",
-    "markUnread": "Mark as unread"
+    "markUnread": "Mark as unread",
+    "spam": "Mark as spam",
+    "notSpam": "Not spam",
+    "moveTo": "Move to"
   },
   "toast": {
     "archived_one": "Conversation archived",
     "archived_other": "{{count}} conversations archived",
     "deleted_one": "Moved to trash",
-    "deleted_other": "{{count}} conversations moved to trash"
+    "deleted_other": "{{count}} conversations moved to trash",
+    "junked_one": "Marked as spam",
+    "junked_other": "{{count}} conversations marked as spam",
+    "notJunk_one": "Moved to the inbox",
+    "notJunk_other": "{{count}} conversations moved to the inbox"
   },
   "archive": {
     "missing": "This account has no archive folder yet.",
@@ -94,8 +101,19 @@
     "attachments_one": "{{count}} attachment",
     "attachments_other": "{{count}} attachments",
     "open": "Open",
-    "save": "Save as",
-    "blockedType": "This file type can only be saved, not opened directly."
+    "save": "Download",
+    "blockedType": "This file type can only be saved, not opened directly.",
+    "reveal": "Show in folder",
+    "noJunkFolder": "This account has no spam folder."
+  },
+  "downloads": {
+    "title": "Downloads",
+    "empty": "No downloads yet",
+    "reveal": "Show in folder",
+    "remove": "Remove from list",
+    "clear": "Clear list",
+    "gone": "File deleted",
+    "goneError": "The file no longer exists."
   },
   "subs": {
     "count_one": "{{count}} sender",

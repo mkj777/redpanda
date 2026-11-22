@@ -119,6 +119,7 @@ async fn full_cycle() {
         let mut s = raw_session(&user).await;
         s.create("Sent").await.unwrap();
         s.create("Trash").await.unwrap();
+        s.create("Junk").await.unwrap();
         let _ = s.logout().await;
     }
 
@@ -175,11 +176,12 @@ async fn full_cycle() {
     // Folders appear after the first sync.
     let folders = eventually("folders", || {
         let f = app.list_folders().unwrap().folders;
-        (f.len() >= 3).then_some(f)
+        (f.len() >= 4).then_some(f)
     })
     .await;
     let role = |r: &str| folders.iter().find(|f| f.role == r).unwrap().clone();
     let (inbox_f, sent_f, trash_f) = (role("inbox"), role("sent"), role("trash"));
+    let junk_f = role("junk");
 
     // Send three mails to ourselves, one with an attachment.
     let attachment = std::env::temp_dir().join("redpanda-test-notes.txt");
@@ -234,9 +236,26 @@ async fn full_cycle() {
     assert!(detail.text.as_deref().unwrap().contains("Body number 3"));
     assert_eq!(detail.attachments.len(), 1);
     assert_eq!(detail.attachments[0].filename, "redpanda-test-notes.txt");
-    let out = std::env::temp_dir().join("redpanda-test-saved.txt");
-    app.save_attachment(msgs[0].id, 0, out.to_str().unwrap()).unwrap();
-    assert_eq!(std::fs::read_to_string(&out).unwrap(), "attached text");
+    // Downloads land in the folder without asking, never over an earlier one, and are listed.
+    let downloads = std::env::temp_dir().join(format!("redpanda-test-downloads-{}", std::process::id()));
+    let first = app.download_attachment(msgs[0].id, 0, &downloads).unwrap();
+    let second = app.download_attachment(msgs[0].id, 0, &downloads).unwrap();
+    assert_eq!(first.name, "redpanda-test-notes.txt");
+    assert_eq!(second.name, "redpanda-test-notes (1).txt");
+    let saved = app.download_file(first.id).unwrap();
+    assert_eq!(std::fs::read_to_string(&saved).unwrap(), "attached text");
+    let listed = app.list_downloads().unwrap();
+    assert_eq!(
+        listed.iter().map(|d| d.id).collect::<Vec<_>>(),
+        [second.id, first.id]
+    );
+    assert!(listed.iter().all(|d| d.exists));
+    // A file deleted outside redpanda shows as gone.
+    std::fs::remove_file(&saved).unwrap();
+    let listed = app.list_downloads().unwrap();
+    assert!(!listed[1].exists && listed[0].exists);
+    assert!(app.download_file(first.id).is_err());
+    std::fs::remove_dir_all(&downloads).unwrap();
 
     // The preview is there (from the partial fetch, or from the body on servers like GreenMail
     // that only get headers).
@@ -323,6 +342,36 @@ async fn full_cycle() {
     })
     .await;
     assert_eq!(inbox(&app).len(), 1);
+
+    // Spam goes to the spam folder, and "not spam" brings it back to the inbox.
+    let suspect = inbox(&app)[0].clone();
+    app.mark_junk(&[suspect.id], true, false).unwrap();
+    assert!(inbox(&app).is_empty());
+    eventually_async("in spam on the server", || {
+        let user = user.clone();
+        async move { (server_state(&user, "Junk").await.len() == 1).then_some(()) }
+    })
+    .await;
+    app.sync_now(None);
+    let junked = eventually("spam synced", || {
+        let page = app
+            .list_messages(&View::Folder { folder_id: junk_f.id }, 0, 10, false)
+            .unwrap();
+        page.items.first().cloned()
+    })
+    .await;
+    assert_eq!(junked.subject, suspect.subject);
+    app.mark_junk(&[junked.id], false, false).unwrap();
+    eventually_async("back in the inbox on the server", || {
+        let user = user.clone();
+        async move {
+            (server_state(&user, "Junk").await.is_empty() && server_state(&user, "INBOX").await.len() == 1)
+                .then_some(())
+        }
+    })
+    .await;
+    app.sync_now(None);
+    eventually("inbox synced", || (inbox(&app).len() == 1).then_some(())).await;
 
     // Reply sets \Answered on the original.
     let original = inbox(&app)[0].clone();

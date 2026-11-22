@@ -291,3 +291,20 @@ pub struct SyncStatus {
     pub state: SyncState,
     pub error: Option<String>,
 }
+
+/// An attachment saved to the Downloads folder, as the download list shows it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Download {
+    pub id: i64,
+    pub message_id: i64,
+    pub index: u32,
+    /// The file name it got, which can differ from the attachment's, as in "bill (1).pdf".
+    pub name: String,
+    pub size: i64,
+    pub created_at: i64,
+    /// False once the file was deleted or moved away.
+    pub exists: bool,
+    #[serde(skip)]
+    pub path: String,
+}

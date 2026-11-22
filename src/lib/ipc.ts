@@ -98,6 +98,19 @@ export interface AttachmentInfo {
   inline: boolean;
 }
 
+/** An attachment saved to the Downloads folder, as the download list shows it. */
+export interface Download {
+  id: number;
+  messageId: number;
+  index: number;
+  /** The file name it got, which can differ from the attachment's, as in "bill (1).pdf". */
+  name: string;
+  size: number;
+  createdAt: number;
+  /** False once the file was deleted or moved away. */
+  exists: boolean;
+}
+
 export interface MessageDetail extends MessageSummary {
   cc: Address[];
   replyTo: Address[];
@@ -254,16 +267,27 @@ export const api = {
     call<void>("move_messages", { ids, targetFolderId, threads }),
   deleteMessages: (ids: number[], threads: boolean) => call<void>("delete_messages", { ids, threads }),
   archiveMessages: (ids: number[], threads: boolean) => call<void>("archive_messages", { ids, threads }),
+  /** Moves to the spam folder, or with `junk` false back to the inbox. */
+  markJunk: (ids: number[], junk: boolean, threads: boolean) => call<void>("mark_junk", { ids, junk, threads }),
   createArchiveFolder: (accountId: string) => call<void>("create_archive_folder", { accountId }),
   allowRemoteContent: (sender: string) => call<void>("allow_remote_content", { sender }),
   listSubscriptions: () => call<Subscription[]>("list_subscriptions"),
   /** With `page` the unsubscribe page opens in the browser instead. */
   unsubscribe: (messageId: number, page = false) => call<UnsubscribeMethod>("unsubscribe", { messageId, page }),
-  saveAttachment: (messageId: number, index: number, path: string) =>
-    call<void>("save_attachment", { messageId, index, path }),
   exportPdf: (messageId: number, path: string, allowRemote: boolean) =>
     call<void>("export_pdf", { messageId, path, allowRemote }),
   openAttachment: (messageId: number, index: number) => call<void>("open_attachment", { messageId, index }),
+  /** Saves to the Downloads folder without asking. */
+  downloadAttachment: (messageId: number, index: number) =>
+    call<Download>("download_attachment", { messageId, index }),
+  listDownloads: () => call<Download[]>("list_downloads"),
+  removeDownload: (id: number) => call<void>("remove_download", { id }),
+  clearDownloads: () => call<void>("clear_downloads"),
+  openDownload: (id: number) => call<void>("open_download", { id }),
+  revealDownload: (id: number) => call<void>("reveal_download", { id }),
+  /** Starts a native drag of the attachment; resolves once it is dropped or cancelled. */
+  dragAttachment: (messageId: number, index: number) => call<void>("drag_attachment", { messageId, index }),
+  dragDownload: (id: number) => call<void>("drag_download", { id }),
   sendMessage: (draft: Draft) => call<void>("send_message", { draft }),
   saveDraft: (draft: Draft) => call<number>("save_draft", { draft }),
   listDrafts: () => call<Draft[]>("list_drafts"),
@@ -422,41 +446,6 @@ export async function pickFiles(): Promise<string[]> {
   const result = await open({ multiple: true, directory: false });
   if (!result) return [];
   return Array.isArray(result) ? result : [result];
-}
-
-const DOWNLOAD_DIR_KEY = "redpanda-download-dir";
-
-function lastDownloadDir(): string | null {
-  try {
-    return localStorage.getItem(DOWNLOAD_DIR_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Asks where to save an attachment: in Downloads the first time, then in the folder an
- * attachment was last saved to, as long as it still exists.
- */
-export async function pickDownloadPath(filename: string): Promise<string | null> {
-  if (!isTauri) return null;
-  const defaultPath = await call<string>("attachment_save_path", { filename, lastDir: lastDownloadDir() });
-  const { save } = await import("@tauri-apps/plugin-dialog");
-  return save({ defaultPath });
-}
-
-/** Remembers the folder of an attachment that was saved, or forgets it after a failed save. */
-export async function rememberDownloadDir(savedPath: string | null) {
-  try {
-    if (savedPath) {
-      const { dirname } = await import("@tauri-apps/api/path");
-      localStorage.setItem(DOWNLOAD_DIR_KEY, await dirname(savedPath));
-    } else {
-      localStorage.removeItem(DOWNLOAD_DIR_KEY);
-    }
-  } catch {
-    // Only a convenience.
-  }
 }
 
 export async function pickSavePath(defaultName: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null> {

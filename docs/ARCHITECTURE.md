@@ -41,6 +41,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 | `aliases` | further addresses an account may send from |
 | `drafts` | locally autosaved drafts, with the address they go out from |
 | `unsubscribed` | newsletter senders the user left, per account |
+| `downloads` | the last 20 attachments saved to the Downloads folder, for the download list |
 
 ### `sync/`
 
@@ -55,7 +56,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 
 ### `mime/`
 
-- `parse.rs`: turns raw RFC 5322 messages into text, HTML and attachments (mail-parser), builds previews and thread keys.
+- `parse.rs`: turns raw RFC 5322 messages into text, HTML and attachments (mail-parser), builds previews and thread keys. Attachment names go through `safe_file_name` before anything is written to disk.
 - `sanitize.rs`: ammonia allow list, inlines `cid:` images as data URLs, blocks remote images unless allowed.
 
 ### `send/`
@@ -67,6 +68,10 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 
 Reads `List-Unsubscribe` and `List-Unsubscribe-Post` during sync and unsubscribes by one-click POST, by mail or through the sender's page, see [ADR 0006](adr/0006-unsubscribe.md).
 
+### Downloads and dragging out
+
+`download_attachment` saves into the Downloads folder under a free name and lists it in `downloads`. `drag_attachment` and `drag_download` run a native file drag (the `drag` crate) on the main thread, see [ADR 0012](adr/0012-downloads-and-drag-out.md).
+
 ### `titlebar.rs`
 
 The window has no native frame (`decorations: false`); the page draws the title bar. Snap layouts need a native child window over the maximize button, see [ADR 0005](adr/0005-custom-title-bar.md).
@@ -75,7 +80,7 @@ The window has no native frame (`decorations: false`); the page draws the title 
 
 - `lib/ipc.ts`: typed wrappers around `invoke` and `listen`.
 - `stores/`: Zustand stores for accounts, folders, messages and UI state.
-- `components/`: TitleBar, Sidebar, MessageList (virtualized), ReadingPane, Subscriptions (newsletter senders), Unsubscribe (confirmation dialog), Composer, AccountWizard, Settings.
+- `components/`: TitleBar with the download list (Downloads), Sidebar, MessageList (virtualized) with its right-click menu (MessageMenu), ReadingPane, Subscriptions (newsletter senders), Unsubscribe (confirmation dialog), Composer, AccountWizard, Settings.
 - `i18n/`: `en.json` and `de.json` with identical keys.
 
 ## HTML safety

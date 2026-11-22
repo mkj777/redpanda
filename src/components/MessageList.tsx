@@ -7,6 +7,7 @@ import { cn, displayName, listDate } from "@/lib/format";
 import { archive, remove, toggleSeen } from "@/lib/actions";
 import { useMail } from "@/stores/mail";
 import { useUi } from "@/stores/ui";
+import { MessageContextMenu } from "./MessageMenu";
 import { folderLabel } from "./Sidebar";
 import { SubscriptionList } from "./Subscriptions";
 import { IconButton, Spinner } from "./ui";
@@ -64,47 +65,49 @@ function MessageRow({
     ? `${t("list.toPrefix")} ${m.to.map(displayName).join(", ") || t("list.noRecipient")}`
     : displayName(m.from) || t("list.unknownSender");
   return (
-    <div
-      role="option"
-      aria-selected={selected}
-      onClick={onSelect}
-      className={cn(
-        "group relative flex h-full cursor-default flex-col justify-center gap-0.5 border-b border-line px-4",
-        selected ? "bg-selected" : "hover:bg-hover",
-      )}
-    >
-      {!m.seen && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-accent" aria-hidden />}
-      <div className="flex items-center gap-2">
-        {showAccount && color && <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />}
-        <span className={cn("min-w-0 flex-1 truncate text-[13px]", m.seen ? "text-fg/80" : "font-semibold text-fg")}>
-          {who}
-        </span>
-        {m.threadCount > 1 && <span className="text-xs tabular-nums text-muted">{m.threadCount}</span>}
-        {m.hasAttachments && <Paperclip size={13} className="shrink-0 text-muted" />}
-        {m.flagged && <Star size={13} className="shrink-0 fill-accent text-accent" />}
-        <span className="shrink-0 text-xs tabular-nums text-muted group-hover:invisible">
-          {listDate(m.date, i18n.language)}
-        </span>
-      </div>
-      <div className={cn("truncate text-[13px]", m.seen ? "text-fg/80" : "font-medium text-fg")}>
-        {m.subject || t("list.noSubject")}
-      </div>
-      <div className="truncate text-[13px] text-muted">{m.preview}</div>
+    <MessageContextMenu m={m}>
       <div
-        className="absolute right-2 top-1.5 hidden items-center rounded-md border border-line bg-surface group-hover:flex"
-        onClick={(e) => e.stopPropagation()}
+        role="option"
+        aria-selected={selected}
+        onClick={onSelect}
+        className={cn(
+          "group relative flex h-full cursor-default flex-col justify-center gap-0.5 border-b border-line px-4",
+          selected ? "bg-selected" : "hover:bg-hover data-[state=open]:bg-hover",
+        )}
       >
-        <IconButton label={t("action.archive")} className="size-7" onClick={() => archive([m])}>
-          <Archive size={14} />
-        </IconButton>
-        <IconButton label={t("action.delete")} className="size-7" onClick={() => remove([m])}>
-          <Trash2 size={14} />
-        </IconButton>
-        <IconButton label={m.seen ? t("action.markUnread") : t("action.markRead")} className="size-7" onClick={() => toggleSeen([m])}>
-          {m.seen ? <Mail size={14} /> : <MailOpen size={14} />}
-        </IconButton>
+        {!m.seen && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-accent" aria-hidden />}
+        <div className="flex items-center gap-2">
+          {showAccount && color && <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />}
+          <span className={cn("min-w-0 flex-1 truncate text-[13px]", m.seen ? "text-fg/80" : "font-semibold text-fg")}>
+            {who}
+          </span>
+          {m.threadCount > 1 && <span className="text-xs tabular-nums text-muted">{m.threadCount}</span>}
+          {m.hasAttachments && <Paperclip size={13} className="shrink-0 text-muted" />}
+          {m.flagged && <Star size={13} className="shrink-0 fill-accent text-accent" />}
+          <span className="shrink-0 text-xs tabular-nums text-muted group-hover:invisible">
+            {listDate(m.date, i18n.language)}
+          </span>
+        </div>
+        <div className={cn("truncate text-[13px]", m.seen ? "text-fg/80" : "font-medium text-fg")}>
+          {m.subject || t("list.noSubject")}
+        </div>
+        <div className="truncate text-[13px] text-muted">{m.preview}</div>
+        <div
+          className="absolute right-2 top-1.5 hidden items-center rounded-md border border-line bg-surface group-hover:flex"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <IconButton label={t("action.archive")} className="size-7" onClick={() => archive([m])}>
+            <Archive size={14} />
+          </IconButton>
+          <IconButton label={t("action.delete")} className="size-7" onClick={() => remove([m])}>
+            <Trash2 size={14} />
+          </IconButton>
+          <IconButton label={m.seen ? t("action.markUnread") : t("action.markRead")} className="size-7" onClick={() => toggleSeen([m])}>
+            {m.seen ? <Mail size={14} /> : <MailOpen size={14} />}
+          </IconButton>
+        </div>
       </div>
-    </div>
+    </MessageContextMenu>
   );
 }
 

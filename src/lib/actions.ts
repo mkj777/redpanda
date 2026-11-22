@@ -1,7 +1,15 @@
 // Message actions shared by the list, the reading pane and keyboard shortcuts.
 
 import i18n from "@/i18n";
-import { api, toAppError, type AppError, type Mailto, type MessageDetail, type MessageSummary } from "./ipc";
+import {
+  api,
+  toAppError,
+  type AppError,
+  type FolderRole,
+  type Mailto,
+  type MessageDetail,
+  type MessageSummary,
+} from "./ipc";
 import { buildReply, ownAddresses, type ReplyMode } from "./reply";
 import { displayName, fullDate } from "./format";
 import { useMail } from "@/stores/mail";
@@ -14,6 +22,8 @@ export function errorText(e: unknown): string {
   if (err.code === "invalid" || !i18n.exists(key)) {
     if (err.message === "blocked_file_type") return i18n.t("reader.blockedType");
     if (err.message === "unknown_sender") return i18n.t("compose.fromUnavailable");
+    if (err.message === "no_junk_folder") return i18n.t("reader.noJunkFolder");
+    if (err.message === "file_gone") return i18n.t("downloads.goneError");
     return err.message;
   }
   return i18n.t(key);
@@ -114,6 +124,26 @@ export async function remove(msgs: MessageSummary[]) {
   } catch (e) {
     reportError(e);
   }
+}
+
+/** Moves to the spam folder, or with `junk` false back to the inbox. */
+export async function markJunk(msgs: MessageSummary[], junk: boolean) {
+  if (!msgs.length) return;
+  const ids = msgs.map((m) => m.id);
+  try {
+    await api.markJunk(ids, junk, threadsFor());
+    useMail.getState().dropFromList(ids);
+    useUi.getState().toast(i18n.t(junk ? "toast.junked" : "toast.notJunk", { count: ids.length }));
+  } catch (e) {
+    reportError(e);
+  }
+}
+
+/** Which spam action a message in a folder with `role` offers: none for own mail. */
+export function spamAction(role: FolderRole | undefined): "spam" | "notSpam" | null {
+  if (role === "junk") return "notSpam";
+  if (role === "sent" || role === "drafts") return null;
+  return "spam";
 }
 
 export async function moveTo(msgs: MessageSummary[], folderId: number) {

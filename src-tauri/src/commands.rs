@@ -144,6 +144,11 @@ pub fn archive_messages(state: AppState<'_>, ids: Vec<i64>, threads: bool) -> Re
 }
 
 #[tauri::command]
+pub fn mark_junk(state: AppState<'_>, ids: Vec<i64>, junk: bool, threads: bool) -> Result<()> {
+    state.mark_junk(&ids, junk, threads)
+}
+
+#[tauri::command]
 pub async fn create_archive_folder(state: AppState<'_>, account_id: String) -> Result<()> {
     state.create_archive_folder(&account_id).await
 }
@@ -169,34 +174,6 @@ pub async fn unsubscribe(
 }
 
 #[tauri::command]
-pub fn save_attachment(state: AppState<'_>, message_id: i64, index: u32, path: String) -> Result<()> {
-    state.save_attachment(message_id, index, &path)
-}
-
-/// The path the save dialog for an attachment starts with, see `suggest_save_path`. Checking a
-/// folder on a network share that is offline can take a while, so it runs off the main thread.
-#[tauri::command]
-pub async fn attachment_save_path(
-    app: AppHandle,
-    filename: String,
-    last_dir: Option<String>,
-) -> Result<String> {
-    use tauri::Manager;
-    let downloads = app.path().download_dir().ok();
-    tokio::task::spawn_blocking(move || {
-        crate::service::suggest_save_path(
-            last_dir.as_deref().map(std::path::Path::new),
-            downloads.as_deref(),
-            &filename,
-        )
-        .to_string_lossy()
-        .into_owned()
-    })
-    .await
-    .map_err(|e| AppError::Other(e.to_string()))
-}
-
-#[tauri::command]
 pub async fn export_pdf(
     app: AppHandle,
     state: AppState<'_>,
@@ -216,9 +193,108 @@ pub async fn export_pdf(
 #[tauri::command]
 pub fn open_attachment(app: AppHandle, state: AppState<'_>, message_id: i64, index: u32) -> Result<()> {
     let path = state.attachment_temp_file(message_id, index)?;
+    open_file(&app, &path)
+}
+
+fn open_file(app: &AppHandle, path: &std::path::Path) -> Result<()> {
+    crate::service::check_openable(path)?;
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| AppError::Other(e.to_string()))
+}
+
+/// Saves an attachment to the Downloads folder without a dialog.
+#[tauri::command]
+pub async fn download_attachment(state: AppState<'_>, message_id: i64, index: u32) -> Result<Download> {
+    let dir = dirs::download_dir().ok_or_else(|| AppError::Other("no Downloads folder".into()))?;
+    let app = state.inner().clone();
+    tokio::task::spawn_blocking(move || app.download_attachment(message_id, index, &dir))
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+/// Checks every file of the list on disk; one on an offline network share can take a while.
+#[tauri::command]
+pub async fn list_downloads(state: AppState<'_>) -> Result<Vec<Download>> {
+    let app = state.inner().clone();
+    tokio::task::spawn_blocking(move || app.list_downloads())
+        .await
+        .map_err(|e| AppError::Other(e.to_string()))?
+}
+
+#[tauri::command]
+pub fn remove_download(state: AppState<'_>, id: i64) -> Result<()> {
+    state.remove_download(id)
+}
+
+#[tauri::command]
+pub fn clear_downloads(state: AppState<'_>) -> Result<()> {
+    state.clear_downloads()
+}
+
+#[tauri::command]
+pub fn open_download(app: AppHandle, state: AppState<'_>, id: i64) -> Result<()> {
+    open_file(&app, &state.download_file(id)?)
+}
+
+/// Opens Explorer with the downloaded file selected.
+#[tauri::command]
+pub fn reveal_download(app: AppHandle, state: AppState<'_>, id: i64) -> Result<()> {
+    let path = state.download_file(id)?;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|e| AppError::Other(e.to_string()))
+}
+
+/// Drags an attachment out of the window as a file, from a copy in the temp folder.
+#[tauri::command]
+pub async fn drag_attachment(
+    window: tauri::Window,
+    state: AppState<'_>,
+    message_id: i64,
+    index: u32,
+) -> Result<()> {
+    let path = state.attachment_temp_file(message_id, index)?;
+    drag_out(window, path).await
+}
+
+/// Drags a downloaded file out of the window.
+#[tauri::command]
+pub async fn drag_download(window: tauri::Window, state: AppState<'_>, id: i64) -> Result<()> {
+    let path = state.download_file(id)?;
+    drag_out(window, path).await
+}
+
+/// Runs a native drag of `path` until it is dropped or cancelled. Only ever copies, so dropping
+/// a download into another folder leaves it in Downloads. The page names a message or a download,
+/// never a path, so it can't drag out any other file.
+#[cfg(windows)]
+async fn drag_out(window: tauri::Window, path: std::path::PathBuf) -> Result<()> {
+    const PREVIEW: &[u8] = include_bytes!("../assets/drag-file.png");
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let target = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let result = drag::start_drag(
+                &target,
+                drag::DragItem::Files(vec![path]),
+                drag::Image::Raw(PREVIEW.to_vec()),
+                |_, _| {},
+                drag::Options::default(),
+            );
+            let _ = tx.send(result);
+        })
+        .map_err(|e| AppError::Other(e.to_string()))?;
+    rx.await
+        .map_err(|e| AppError::Other(e.to_string()))?
+        .map_err(|e| AppError::Other(format!("could not drag the file: {e}")))
+}
+
+#[cfg(not(windows))]
+async fn drag_out(_window: tauri::Window, _path: std::path::PathBuf) -> Result<()> {
+    Err(AppError::Other(
+        "dragging files out is only built for Windows".into(),
+    ))
 }
 
 #[tauri::command]

@@ -72,13 +72,20 @@
     "star": "Markieren",
     "unstar": "Markierung entfernen",
     "markRead": "Als gelesen markieren",
-    "markUnread": "Als ungelesen markieren"
+    "markUnread": "Als ungelesen markieren",
+    "spam": "Als Spam markieren",
+    "notSpam": "Kein Spam",
+    "moveTo": "Verschieben nach"
   },
   "toast": {
     "archived_one": "Konversation archiviert",
     "archived_other": "{{count}} Konversationen archiviert",
     "deleted_one": "In den Papierkorb verschoben",
-    "deleted_other": "{{count}} Konversationen in den Papierkorb verschoben"
+    "deleted_other": "{{count}} Konversationen in den Papierkorb verschoben",
+    "junked_one": "Als Spam markiert",
+    "junked_other": "{{count}} Konversationen als Spam markiert",
+    "notJunk_one": "In den Posteingang verschoben",
+    "notJunk_other": "{{count}} Konversationen in den Posteingang verschoben"
   },
   "archive": {
     "missing": "Dieses Konto hat noch keinen Archivordner.",
@@ -94,8 +101,19 @@
     "attachments_one": "{{count}} Anhang",
     "attachments_other": "{{count}} Anhänge",
     "open": "Öffnen",
-    "save": "Speichern unter",
-    "blockedType": "Dieser Dateityp kann nur gespeichert, nicht direkt geöffnet werden."
+    "save": "Herunterladen",
+    "blockedType": "Dieser Dateityp kann nur gespeichert, nicht direkt geöffnet werden.",
+    "reveal": "Im Ordner zeigen",
+    "noJunkFolder": "Dieses Konto hat keinen Spam-Ordner."
+  },
+  "downloads": {
+    "title": "Downloads",
+    "empty": "Noch keine Downloads",
+    "reveal": "Im Ordner zeigen",
+    "remove": "Aus Liste entfernen",
+    "clear": "Liste leeren",
+    "gone": "Datei gelöscht",
+    "goneError": "Die Datei gibt es nicht mehr."
   },
   "subs": {
     "count_one": "{{count}} Absender",

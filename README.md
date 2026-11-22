@@ -16,6 +16,8 @@ A minimal desktop mail client for Windows. Gmail, Outlook/Microsoft 365 and any 
 - **Push**: IMAP IDLE on the inbox, other folders are checked every few minutes. Closing the window keeps redpanda running in the notification area.
 - **Privacy**: mail HTML is sanitized in Rust and shown in a sandboxed frame without scripts; remote images stay blocked until you allow them, per message or per sender
 - **Writing**: plain-text messages, reply, reply all, forward (with the original attachments), attachments, address autocomplete, drafts saved locally while you type, sending from your Gmail "Send mail as" addresses
+- **Attachments**: download straight to the Downloads folder without a dialog, a download list in the title bar, and drag any attachment into another app, such as an upload field in the browser
+- **Right-click** on a mail for reply, forward, read/unread, star, archive, move, spam or not spam, and delete
 - **Newsletters**: "Unsubscribe" next to the sender like in Gmail, with one click where the sender supports it and otherwise by email or on its page, plus a view of every newsletter sender and how often it writes
 - **Search** over subjects, senders, recipients, the text of every mail and attachment names, instantly and offline (SQLite FTS5), and on the mail server too (Gmail with its own search, archived mail included)
 - **Keyboard**: `j`/`k` to move, `c` compose, `r`/`a`/`f` reply, reply all, forward, `e` archive, `#` delete, `s` star, `u` read/unread, `/` search

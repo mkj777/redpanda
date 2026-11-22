@@ -1,6 +1,7 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   Archive,
+  Check,
   Download,
   FileDown,
   ExternalLink,
@@ -12,15 +13,29 @@ import {
   Paperclip,
   Reply,
   ReplyAll,
+  ShieldAlert,
+  ShieldCheck,
   Star,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
-import { api, pickDownloadPath, pickSavePath, rememberDownloadDir, type MessageDetail, type MessageSummary } from "@/lib/ipc";
+import { api, pickSavePath, type AttachmentInfo, type MessageDetail, type MessageSummary } from "@/lib/ipc";
 import { cn, displayName, fileSize, fullDate } from "@/lib/format";
-import { archive, markSeen, moveTo, remove, reply, reportError, toggleFlagged, toggleSeen } from "@/lib/actions";
+import {
+  archive,
+  markJunk,
+  markSeen,
+  moveTo,
+  remove,
+  reply,
+  reportError,
+  spamAction,
+  toggleFlagged,
+  toggleSeen,
+} from "@/lib/actions";
+import { attachmentKey, fileDrag, onFile, savedFile, useDownloads } from "@/stores/downloads";
 import { useMail } from "@/stores/mail";
 import { useSettings } from "@/stores/settings";
 import { HtmlBody, TextBody } from "./MessageBody";
@@ -28,8 +43,54 @@ import { folderLabel } from "./Sidebar";
 import { Avatar, Button, IconButton, Spinner } from "./ui";
 import { UnsubscribeLink } from "./Unsubscribe";
 
-function Attachments({ msg }: { msg: MessageDetail }) {
+/** One attachment of an open mail. Drag it into another app, or save it to Downloads. */
+function AttachmentTile({ msg, a }: { msg: MessageDetail; a: AttachmentInfo }) {
   const { t, i18n } = useTranslation();
+  const saved = useDownloads((s) => savedFile(s.list, msg.id, a.index));
+  const saving = useDownloads((s) => s.pending.includes(attachmentKey(msg.id, a.index)));
+  return (
+    <div
+      {...fileDrag(() => api.dragAttachment(msg.id, a.index))}
+      className="flex h-10 max-w-72 select-none items-center gap-2 rounded-md border border-line bg-surface pl-2.5 pr-1"
+    >
+      <FileText size={16} className="shrink-0 text-muted" />
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="truncate text-[13px]" title={a.filename}>
+          {a.filename}
+        </div>
+        <div className="text-[11px] text-muted">{fileSize(a.size, i18n.language)}</div>
+      </div>
+      <IconButton
+        label={t("reader.open")}
+        className="size-7"
+        onClick={() => api.openAttachment(msg.id, a.index).catch(reportError)}
+      >
+        <ExternalLink size={14} />
+      </IconButton>
+      {saved ? (
+        <IconButton
+          label={t("reader.reveal")}
+          className="size-7"
+          onClick={() => void onFile(() => api.revealDownload(saved.id))}
+        >
+          <Check size={14} className="text-accent" />
+        </IconButton>
+      ) : (
+        <IconButton
+          label={t("reader.save")}
+          className="size-7"
+          disabled={saving}
+          onClick={() => void useDownloads.getState().download(msg.id, a.index)}
+        >
+          {saving ? <Spinner className="size-3.5" /> : <Download size={14} />}
+        </IconButton>
+      )}
+    </div>
+  );
+}
+
+function Attachments({ msg }: { msg: MessageDetail }) {
+  const { t } = useTranslation();
   const files = msg.attachments.filter((a) => !a.inline);
   if (!files.length) return null;
   return (
@@ -40,43 +101,7 @@ function Attachments({ msg }: { msg: MessageDetail }) {
       </div>
       <div className="flex flex-wrap gap-2">
         {files.map((a) => (
-          <div key={a.index} className="flex h-10 max-w-72 items-center gap-2 rounded-md border border-line bg-surface pl-2.5 pr-1">
-            <FileText size={16} className="shrink-0 text-muted" />
-            <div className="min-w-0 flex-1 leading-tight">
-              <div className="truncate text-[13px]" title={a.filename}>
-                {a.filename}
-              </div>
-              <div className="text-[11px] text-muted">{fileSize(a.size, i18n.language)}</div>
-            </div>
-            <IconButton
-              label={t("reader.open")}
-              className="size-7"
-              onClick={() => api.openAttachment(msg.id, a.index).catch(reportError)}
-            >
-              <ExternalLink size={14} />
-            </IconButton>
-            <IconButton
-              label={t("reader.save")}
-              className="size-7"
-              onClick={async () => {
-                try {
-                  const path = await pickDownloadPath(a.filename);
-                  if (!path) return;
-                  try {
-                    await api.saveAttachment(msg.id, a.index, path);
-                  } catch (e) {
-                    await rememberDownloadDir(null);
-                    throw e;
-                  }
-                  await rememberDownloadDir(path);
-                } catch (e) {
-                  reportError(e);
-                }
-              }}
-            >
-              <Download size={14} />
-            </IconButton>
-          </div>
+          <AttachmentTile key={a.index} msg={msg} a={a} />
         ))}
       </div>
     </div>
@@ -283,6 +308,7 @@ function Conversation({ summary }: { summary: MessageSummary }) {
   const autoLoad = useSettings((s) => s.autoLoadImages);
   // In the unread view a read message drops out of the list, so it is only marked once the user moves on.
   const markOnLeave = useMail((s) => s.view.kind === "unified" && s.view.which === "unread");
+  const spam = spamAction(useMail((s) => s.folders.find((f) => f.id === summary.folderId)?.role));
   const [thread, setThread] = useState<MessageSummary[] | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [ready, setReady] = useState<Set<number>>(new Set());
@@ -346,6 +372,11 @@ function Conversation({ summary }: { summary: MessageSummary }) {
           <Trash2 size={16} />
         </IconButton>
         <MoveMenu summary={summary} />
+        {spam && (
+          <IconButton label={t(`action.${spam}`)} onClick={() => markJunk([summary], spam === "spam")}>
+            {spam === "spam" ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />}
+          </IconButton>
+        )}
         <IconButton
           label={t("action.exportPdf")}
           onClick={async () => {

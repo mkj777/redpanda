@@ -684,18 +684,46 @@ impl App {
     }
 
     pub fn archive_messages(&self, ids: &[i64], threads: bool) -> Result<()> {
+        self.move_to_role(
+            ids,
+            threads,
+            |gmail| if gmail { "all" } else { "archive" },
+            || AppError::NoArchiveFolder,
+        )
+    }
+
+    /// Moves messages to their account's spam folder, or with `junk` off back to its inbox.
+    pub fn mark_junk(&self, ids: &[i64], junk: bool, threads: bool) -> Result<()> {
+        let role = if junk { "junk" } else { "inbox" };
+        self.move_to_role(
+            ids,
+            threads,
+            |_| role,
+            || AppError::Invalid(if junk { "no_junk_folder" } else { "no_inbox" }.into()),
+        )
+    }
+
+    /// Moves messages to the folder with the role `role_of` names for their account (it gets
+    /// whether the account is Gmail). Every account is checked first, so nothing is half moved
+    /// when one has no such folder.
+    fn move_to_role(
+        &self,
+        ids: &[i64],
+        threads: bool,
+        role_of: impl Fn(bool) -> &'static str,
+        missing: impl Fn() -> AppError,
+    ) -> Result<()> {
         let refs = self.refs(ids, threads)?;
         let groups = Self::group(refs);
-        // Check every account first so nothing is half archived.
         let mut targets = BTreeMap::new();
         for (account_id, _) in groups.keys() {
             let account = self.core.db.with(|c| queries::get_account(c, account_id))?;
-            let role = if account.is_gmail { "all" } else { "archive" };
+            let role = role_of(account.is_gmail);
             let target = self
                 .core
                 .db
                 .with(|c| queries::folder_by_role(c, account_id, role))?
-                .ok_or(AppError::NoArchiveFolder)?;
+                .ok_or_else(&missing)?;
             targets.insert(account_id.clone(), target);
         }
         for ((account_id, folder_id), msgs) in groups {
@@ -759,26 +787,79 @@ impl App {
         mime::parse::attachment(&raw, index).ok_or_else(|| AppError::NotFound("attachment".into()))
     }
 
-    pub fn save_attachment(&self, message_id: i64, index: u32, path: &str) -> Result<()> {
-        let (_, _, bytes) = self.attachment(message_id, index)?;
-        std::fs::write(path, bytes).map_err(|e| AppError::Other(e.to_string()))
-    }
-
-    /// Writes the attachment to a temporary file for opening with the default app.
+    /// Writes the attachment to a temporary file, to open it with the default app or drag it
+    /// out of the window. A copy from before is used again while it is unchanged: a PDF open in
+    /// a viewer is locked against writing, and dragging it out should still work.
     pub fn attachment_temp_file(&self, message_id: i64, index: u32) -> Result<PathBuf> {
         let (name, _, bytes) = self.attachment(message_id, index)?;
-        let ext = std::path::Path::new(&name)
-            .extension()
-            .map(|e| e.to_string_lossy().to_ascii_lowercase())
-            .unwrap_or_default();
-        if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
-            return Err(AppError::Invalid("blocked_file_type".into()));
-        }
         let dir = std::env::temp_dir().join("redpanda").join(message_id.to_string());
         std::fs::create_dir_all(&dir).map_err(|e| AppError::Other(e.to_string()))?;
         let path = dir.join(name);
+        if std::fs::read(&path).is_ok_and(|old| old == bytes) {
+            return Ok(path);
+        }
         std::fs::write(&path, bytes).map_err(|e| AppError::Other(e.to_string()))?;
         Ok(path)
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Downloads
+
+    /// Saves an attachment into `dir`, the Downloads folder, without asking: under its own name,
+    /// or "name (1).pdf" when that is taken. It then heads the download list.
+    pub fn download_attachment(&self, message_id: i64, index: u32, dir: &Path) -> Result<Download> {
+        let (name, _, bytes) = self.attachment(message_id, index)?;
+        let path = write_new_file(dir, &name, &bytes)?;
+        let path_str = path.to_string_lossy().into_owned();
+        let size = bytes.len() as i64;
+        let id = self
+            .core
+            .db
+            .with(|c| queries::add_download(c, message_id, index, &path_str, size))?;
+        Ok(Download {
+            id,
+            message_id,
+            index,
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            size,
+            created_at: crate::store::now(),
+            exists: true,
+            path: path_str,
+        })
+    }
+
+    /// The download list, newest first, with whether each file is still there.
+    pub fn list_downloads(&self) -> Result<Vec<Download>> {
+        let mut list = self.core.db.with(|c| queries::list_downloads(c))?;
+        for d in &mut list {
+            d.exists = Path::new(&d.path).is_file();
+        }
+        Ok(list)
+    }
+
+    /// The file of a download list entry, while it still exists.
+    pub fn download_file(&self, id: i64) -> Result<PathBuf> {
+        let path = self
+            .core
+            .db
+            .with(|c| queries::download_path(c, id))?
+            .ok_or_else(|| AppError::NotFound("download".into()))?;
+        let path = PathBuf::from(path);
+        if !path.is_file() {
+            return Err(AppError::Invalid("file_gone".into()));
+        }
+        Ok(path)
+    }
+
+    pub fn remove_download(&self, id: i64) -> Result<()> {
+        self.core.db.with(|c| queries::remove_download(c, id))
+    }
+
+    pub fn clear_downloads(&self) -> Result<()> {
+        self.core.db.with(|c| queries::clear_downloads(c))
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1219,82 +1300,91 @@ mod tests {
     }
 }
 
-/// Where the save dialog for an attachment starts: the folder used last while it still exists,
-/// otherwise `fallback` (Downloads). The name never reads as a folder, since the dialog would
-/// open inside that folder with an empty name.
-pub fn suggest_save_path(last_dir: Option<&Path>, fallback: Option<&Path>, filename: &str) -> PathBuf {
-    let name = filename.trim();
-    let name = if name.chars().all(|c| c == '.') {
-        "attachment"
-    } else {
-        name
-    };
-    let Some(dir) = last_dir.filter(|d| d.is_absolute() && d.is_dir()).or(fallback) else {
-        return PathBuf::from(name);
-    };
-    let path = dir.join(name);
-    if !path.is_dir() {
-        return path;
+/// Refuses files that run code when opened, see [`BLOCKED_EXTENSIONS`]. Saving them is fine.
+pub fn check_openable(path: &Path) -> Result<()> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(AppError::Invalid("blocked_file_type".into()));
     }
+    Ok(())
+}
+
+/// Writes `bytes` to a new file in `dir` named `name`, or "name (1).ext" and so on when that is
+/// taken. Never overwrites: the name is claimed with `create_new`, so two downloads at once can't
+/// end up in the same file.
+pub fn write_new_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf> {
+    use std::io::Write;
+    let io = |e: std::io::Error| AppError::Other(e.to_string());
+    std::fs::create_dir_all(dir).map_err(io)?;
     let (stem, ext) = match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
         _ => (name, String::new()),
     };
-    (1..)
-        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
-        .find(|p| !p.is_dir())
-        .expect("a free name")
+    for n in 0..1000 {
+        let path = if n == 0 {
+            dir.join(name)
+        } else {
+            dir.join(format!("{stem} ({n}){ext}"))
+        };
+        if path.exists() {
+            continue;
+        }
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(io(e)),
+        };
+        if let Err(e) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err(io(e));
+        }
+        return Ok(path);
+    }
+    Err(AppError::Other(format!("no free file name for {name}")))
 }
 
 #[cfg(test)]
-mod save_path_tests {
+mod download_tests {
     use super::*;
 
     #[test]
-    fn starts_in_the_last_folder_while_it_exists() {
-        let tmp = std::env::temp_dir().join(format!("redpanda-save-{}", uuid::Uuid::new_v4().simple()));
-        let last = tmp.join("last");
-        let downloads = tmp.join("Downloads");
-        std::fs::create_dir_all(&last).unwrap();
-        std::fs::create_dir_all(&downloads).unwrap();
+    fn downloads_never_overwrite() {
+        let dir = std::env::temp_dir().join(format!("redpanda-dl-{}", uuid::Uuid::new_v4().simple()));
+        let first = write_new_file(&dir, "bill.pdf", b"one").unwrap();
+        assert_eq!(first, dir.join("bill.pdf"));
+        let second = write_new_file(&dir, "bill.pdf", b"two").unwrap();
+        assert_eq!(second, dir.join("bill (1).pdf"));
+        assert_eq!(std::fs::read(&first).unwrap(), b"one");
+        assert_eq!(std::fs::read(&second).unwrap(), b"two");
+        // A folder of that name is taken too.
+        std::fs::create_dir_all(dir.join("notes")).unwrap();
+        assert_eq!(
+            write_new_file(&dir, "notes", b"x").unwrap(),
+            dir.join("notes (1)")
+        );
+        assert_eq!(
+            write_new_file(&dir, ".profile", b"x").unwrap(),
+            dir.join(".profile")
+        );
+        assert_eq!(
+            write_new_file(&dir, ".profile", b"x").unwrap(),
+            dir.join(".profile (1)")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
-        assert_eq!(
-            suggest_save_path(Some(&last), Some(&downloads), "a.pdf"),
-            last.join("a.pdf")
-        );
-        // Gone (a removed stick), or never saved: Downloads.
-        let gone = tmp.join("gone");
-        assert_eq!(
-            suggest_save_path(Some(&gone), Some(&downloads), "a.pdf"),
-            downloads.join("a.pdf")
-        );
-        assert_eq!(
-            suggest_save_path(None, Some(&downloads), "a.pdf"),
-            downloads.join("a.pdf")
-        );
-        assert_eq!(suggest_save_path(None, None, "a.pdf"), PathBuf::from("a.pdf"));
-
-        // Names that would read as a folder.
-        assert_eq!(
-            suggest_save_path(None, Some(&downloads), ".."),
-            downloads.join("attachment")
-        );
-        assert_eq!(
-            suggest_save_path(None, Some(&downloads), " . "),
-            downloads.join("attachment")
-        );
-        std::fs::create_dir_all(downloads.join("Invoices")).unwrap();
-        std::fs::create_dir_all(downloads.join("Invoices (1)")).unwrap();
-        assert_eq!(
-            suggest_save_path(None, Some(&downloads), "Invoices"),
-            downloads.join("Invoices (2)")
-        );
-        std::fs::create_dir_all(downloads.join("x.zip")).unwrap();
-        assert_eq!(
-            suggest_save_path(None, Some(&downloads), "x.zip"),
-            downloads.join("x (1).zip")
-        );
-
-        std::fs::remove_dir_all(&tmp).unwrap();
+    #[test]
+    fn programs_are_saved_but_not_opened() {
+        assert!(check_openable(Path::new(r"C:\tmp\bill.pdf")).is_ok());
+        assert!(check_openable(Path::new(r"C:\tmp\setup.EXE")).is_err());
+        assert!(check_openable(Path::new(r"C:\tmp\x.lnk")).is_err());
     }
 }

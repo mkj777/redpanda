@@ -1390,6 +1390,67 @@ pub fn is_remote_allowed(c: &Connection, sender: &str) -> Result<bool> {
     .is_some())
 }
 
+// ---------------------------------------------------------------------------------------------
+// Downloads
+
+/// How many entries the download list keeps.
+pub const KEPT_DOWNLOADS: i64 = 20;
+
+/// Lists a saved attachment and drops the entries beyond the newest [`KEPT_DOWNLOADS`].
+pub fn add_download(c: &Connection, message_id: i64, index: u32, path: &str, size: i64) -> Result<i64> {
+    c.execute(
+        "INSERT INTO downloads (message_id, att_index, path, size, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![message_id, index, path, size, now()],
+    )?;
+    let id = c.last_insert_rowid();
+    c.execute(
+        "DELETE FROM downloads WHERE id NOT IN (SELECT id FROM downloads ORDER BY created_at DESC, id DESC LIMIT ?1)",
+        [KEPT_DOWNLOADS],
+    )?;
+    Ok(id)
+}
+
+/// The download list, newest first. Whether each file still exists is up to the caller.
+pub fn list_downloads(c: &Connection) -> Result<Vec<Download>> {
+    let mut stmt = c.prepare(
+        "SELECT id, message_id, att_index, path, size, created_at FROM downloads ORDER BY created_at DESC, id DESC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        let path: String = r.get(3)?;
+        Ok(Download {
+            id: r.get(0)?,
+            message_id: r.get(1)?,
+            index: r.get(2)?,
+            name: std::path::Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            size: r.get(4)?,
+            created_at: r.get(5)?,
+            exists: false,
+            path,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+pub fn download_path(c: &Connection, id: i64) -> Result<Option<String>> {
+    Ok(
+        c.query_row("SELECT path FROM downloads WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?,
+    )
+}
+
+pub fn remove_download(c: &Connection, id: i64) -> Result<()> {
+    c.execute("DELETE FROM downloads WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub fn clear_downloads(c: &Connection) -> Result<()> {
+    c.execute("DELETE FROM downloads", [])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1891,6 +1952,33 @@ mod tests {
             set_setting(c, "k", "1")?;
             set_setting(c, "k", "0")?;
             assert_eq!(get_setting(c, "k")?.as_deref(), Some("0"));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn the_download_list_keeps_the_newest() {
+        let db = Db::open_in_memory().unwrap();
+        db.with(|c| {
+            for i in 0..KEPT_DOWNLOADS + 3 {
+                add_download(c, 7, 0, &format!(r"C:\Users\x\Downloads\bill ({i}).pdf"), 100)?;
+            }
+            let list = list_downloads(c)?;
+            assert_eq!(list.len() as i64, KEPT_DOWNLOADS);
+            let newest = format!("bill ({}).pdf", KEPT_DOWNLOADS + 2);
+            assert_eq!(list[0].name, newest);
+            assert_eq!(list.last().unwrap().name, "bill (3).pdf");
+            assert_eq!(
+                download_path(c, list[0].id)?.as_deref(),
+                Some(list[0].path.as_str())
+            );
+
+            remove_download(c, list[0].id)?;
+            assert_eq!(download_path(c, list[0].id)?, None);
+            assert_eq!(list_downloads(c)?.len() as i64, KEPT_DOWNLOADS - 1);
+            clear_downloads(c)?;
+            assert!(list_downloads(c)?.is_empty());
             Ok(())
         })
         .unwrap();
