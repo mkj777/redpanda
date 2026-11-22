@@ -19,7 +19,7 @@ import {
   Trash2,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Account, Folder, FolderRole, View } from "@/lib/ipc";
 import { cn } from "@/lib/format";
@@ -88,10 +88,24 @@ function Row({
   );
 }
 
+/** How long loading has to go on before the progress shows, so a single new mail, whose text
+ * arrives a moment later, does not make the line flash. */
+const PROGRESS_DELAY = 3000;
+
 /** While older mail is still loading in the background: how far it has got, under the account. */
 function LoadingProgress({ folders }: { folders: Folder[] }) {
   const { t, i18n } = useTranslation();
-  if (!folders.some((f) => f.loadedCount < f.totalCount)) return null;
+  const loading = folders.some((f) => f.loadedCount < f.totalCount);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setShown(false);
+      return;
+    }
+    const id = setTimeout(() => setShown(true), PROGRESS_DELAY);
+    return () => clearTimeout(id);
+  }, [loading]);
+  if (!loading || !shown) return null;
   const total = folders.reduce((n, f) => n + f.totalCount, 0);
   const loaded = folders.reduce((n, f) => n + Math.min(f.loadedCount, f.totalCount), 0);
   const number = new Intl.NumberFormat(i18n.language);

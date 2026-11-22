@@ -1,7 +1,8 @@
 //! Per-account sync workers.
 //!
-//! Every account runs three tasks, each with its own IMAP connection:
+//! Every account runs four tasks, each with its own IMAP connection:
 //! - **interactive**: body fetches and user actions, so they never wait behind a long sync
+//! - **search**: searches on the server, so typing never holds up opening a mail
 //! - **background**: full sync on start, every 5 minutes and when IDLE reports changes, and in
 //!   between loads the headers of older mail and then the text of every message for search
 //! - **idle**: IDLE on INBOX (or polling if the server has no IDLE)
@@ -11,7 +12,7 @@ pub mod folders;
 pub mod imap_conn;
 pub mod text;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -23,7 +24,8 @@ use crate::core::Core;
 use crate::error::{AppError, Result};
 use crate::model::{SyncState, SyncStatus};
 use crate::store::queries;
-use engine::{Actions, Conn};
+use engine::{Actions, Conn, Hit};
+use text::FillIn;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(25 * 60);
@@ -69,11 +71,6 @@ pub enum Job {
     CreateFolder {
         path: String,
     },
-    /// Searches the account on the server and puts the local ids of the hits into `hits`.
-    Search {
-        query: SearchQuery,
-        hits: Arc<Mutex<Vec<i64>>>,
-    },
     Append {
         folder_path: String,
         raw: RawMail,
@@ -81,9 +78,15 @@ pub enum Job {
     },
 }
 
-/// What someone searched for. Shows only its length when debug-printed, so a failed job never
-/// writes it into the log file.
+/// What someone searched for. Shows only its length when debug-printed, so it never ends up in
+/// the log file.
 pub struct SearchQuery(pub String);
+
+/// A search on the server for an account's search connection.
+struct SearchRequest {
+    query: SearchQuery,
+    reply: oneshot::Sender<Result<Vec<Hit>>>,
+}
 
 impl std::fmt::Debug for SearchQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -116,6 +119,7 @@ struct Workers {
     jobs: mpsc::UnboundedSender<JobMsg>,
     actions: Arc<Actions>,
     bg: mpsc::UnboundedSender<BgCmd>,
+    search: mpsc::UnboundedSender<SearchRequest>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -154,6 +158,7 @@ impl SyncManager {
     pub fn start(&self, account_id: &str) {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let (bg_tx, bg_rx) = mpsc::unbounded_channel();
+        let (search_tx, search_rx) = mpsc::unbounded_channel();
         let status = StatusHandle {
             core: self.core.clone(),
             statuses: self.statuses.clone(),
@@ -178,11 +183,17 @@ impl SyncManager {
                 account_id.to_string(),
                 bg_tx.clone(),
             )),
+            // It sees the account's actions only to leave alone what the user just moved.
+            tokio::spawn(search_worker(
+                Conn::new(self.core.clone(), account_id, actions.clone()),
+                search_rx,
+            )),
         ];
         let workers = Workers {
             jobs: jobs_tx,
             actions,
             bg: bg_tx,
+            search: search_tx,
             tasks,
         };
         if let Ok(mut map) = self.workers.lock() {
@@ -211,6 +222,35 @@ impl SyncManager {
                 }
             }
         }
+    }
+
+    /// Searches an account on its server, on the account's own search connection. A newer search
+    /// for the same account replaces one still waiting. Accounts that need signing in again or
+    /// are offline are left out: a login that fails again and again can get an account locked.
+    pub async fn search(&self, account_id: &str, query: &str) -> Result<Vec<Hit>> {
+        if self
+            .status(account_id)
+            .is_some_and(|s| matches!(s.state, SyncState::AuthRequired | SyncState::Offline))
+        {
+            return Ok(Vec::new());
+        }
+        let tx = {
+            let map = self
+                .workers
+                .lock()
+                .map_err(|_| AppError::Other("sync workers".into()))?;
+            map.get(account_id)
+                .map(|w| w.search.clone())
+                .ok_or_else(|| AppError::NotFound(format!("account {account_id}")))?
+        };
+        let (reply, rx) = oneshot::channel();
+        tx.send(SearchRequest {
+            query: SearchQuery(query.to_string()),
+            reply,
+        })
+        .map_err(|_| AppError::Other("sync worker stopped".into()))?;
+        rx.await
+            .map_err(|_| AppError::Other("sync worker stopped".into()))?
     }
 
     /// Queues a job without waiting for the result. Failures are reported via `action:failed`.
@@ -306,13 +346,6 @@ async fn run_job(conn: &mut Conn, job: &Job) -> Result<bool> {
         Job::LoadOlder { folder_id } => engine::load_older(conn, *folder_id, engine::OLDER_BATCH).await,
         Job::SyncFolder { folder_id } => engine::sync_folder_by_id(conn, *folder_id).await,
         Job::CreateFolder { path } => engine::create_folder(conn, path).await.map(|_| true),
-        Job::Search { query, hits } => {
-            let found = engine::search_server(conn, &query.0).await?;
-            if let Ok(mut h) = hits.lock() {
-                *h = found;
-            }
-            Ok(true)
-        }
         Job::Append {
             folder_path,
             raw,
@@ -377,7 +410,7 @@ async fn background_worker(
     let mut aliases_read: Option<Instant> = None;
     // Older mail is loaded after a full sync, one batch at a time, so a sync never waits long.
     let mut backfill = false;
-    let mut skip: HashSet<i64> = HashSet::new();
+    let mut fill = FillIn::default();
     let mut last_full = Instant::now();
     loop {
         let cmd = match next.take() {
@@ -387,7 +420,7 @@ async fn background_worker(
             None if backfill => match rx.try_recv() {
                 Ok(c) => c,
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    match engine::fill_in_step(&mut conn, &mut skip).await {
+                    match engine::fill_in_step(&mut conn, &mut fill).await {
                         Ok(more) => backfill = more,
                         Err(e) => {
                             // Tried again after the next full sync.
@@ -430,10 +463,12 @@ async fn background_worker(
             Ok(()) => {
                 status.set(SyncState::Idle, None);
                 backoff = Duration::from_secs(5);
+                // New mail from this sync gets its text right away, not only after the next
+                // full sync, so search finds it and the sidebar's progress does not linger.
+                backfill = true;
                 if full {
                     last_full = Instant::now();
-                    backfill = true;
-                    skip.clear();
+                    fill.skip.clear();
                 }
                 if full && aliases_read.is_none_or(|t| t.elapsed() >= ALIAS_REFRESH) {
                     aliases_read = Some(Instant::now());
@@ -463,6 +498,39 @@ async fn background_worker(
                 }
             }
         }
+    }
+    conn.logout().await;
+}
+
+async fn search_worker(mut conn: Conn, mut rx: mpsc::UnboundedReceiver<SearchRequest>) {
+    let account_id = conn.account_id.clone();
+    // After a failed login the account is not searched again until it signs in, which starts
+    // new workers.
+    let mut auth_failed = false;
+    while let Some(mut req) = rx.recv().await {
+        // Only the newest search matters, older ones waiting behind it get nothing.
+        while let Ok(newer) = rx.try_recv() {
+            let _ = req.reply.send(Ok(Vec::new()));
+            req = newer;
+        }
+        if auth_failed || req.reply.is_closed() {
+            let _ = req.reply.send(Ok(Vec::new()));
+            continue;
+        }
+        let reply = &req.reply;
+        let cancelled = move || reply.is_closed();
+        let mut res = engine::search_server(&mut conn, &req.query.0, &cancelled).await;
+        if res.as_ref().is_err_and(|e| matches!(e, AppError::Network(_))) && !cancelled() {
+            // The server closed the connection while it sat unused: once more on a fresh one.
+            conn.reset();
+            res = engine::search_server(&mut conn, &req.query.0, &cancelled).await;
+        }
+        if let Err(e) = &res {
+            tracing::info!(account = %account_id, "search on the server failed: {e}");
+            auth_failed = e.is_auth_error();
+            conn.reset();
+        }
+        let _ = req.reply.send(res);
     }
     conn.logout().await;
 }

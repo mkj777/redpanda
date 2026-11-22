@@ -949,6 +949,10 @@ async fn text_search_without_opening() {
     assert!(search("unterwegs").is_empty());
     assert!(app.search_server("unterwegs").await.unwrap() >= 1);
     assert_eq!(search("unterwegs"), ["Bestellung"]);
+    // A line break in the query never reaches the server as a command of its own, and the search
+    // connection keeps working.
+    assert_eq!(app.search_server("unterwegs\r\nX1 LOGOUT").await.unwrap(), 0);
+    assert!(app.search_server("unterwegs").await.unwrap() >= 1);
 
     app.remove_account(&account.id).unwrap();
 }

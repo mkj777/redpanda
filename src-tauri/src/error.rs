@@ -73,10 +73,25 @@ impl Serialize for AppError {
     }
 }
 
+/// What an answer from the server that could not be parsed is reported as. async-imap puts the
+/// raw answer into its message, which can hold mail content, so it never goes further than this.
+pub const UNREADABLE_ANSWER: &str = "the server's answer could not be read (during parsing)";
+
+impl AppError {
+    /// An answer the IMAP parser could not read. The connection is out of step afterwards, but
+    /// the network is fine, and the same request fails again.
+    pub fn is_unreadable_answer(&self) -> bool {
+        matches!(self, AppError::Imap(m) if m == UNREADABLE_ANSWER)
+    }
+}
+
 impl From<async_imap::error::Error> for AppError {
     fn from(e: async_imap::error::Error) -> Self {
         use async_imap::error::Error as E;
         match e {
+            E::Io(io) if io.to_string().contains(" during parsing of ") => {
+                AppError::Imap(UNREADABLE_ANSWER.into())
+            }
             E::Io(io) => AppError::Network(io.to_string()),
             E::ConnectionLost => AppError::Network("connection lost".into()),
             other => AppError::Imap(other.to_string()),

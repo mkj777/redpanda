@@ -8,6 +8,7 @@ use async_imap::types::{Fetch, Flag};
 
 use super::folders;
 use super::imap_conn::{self, collect, uid_set, Caps, Session};
+use super::text::FillIn;
 use crate::core::Core;
 use crate::error::{AppError, Result};
 use crate::mime::parse::{parse_body, parse_header, thread_key};
@@ -128,14 +129,32 @@ impl Conn {
         }
     }
 
-    /// Fetches headers of `set` (UIDs or sequence numbers) from the selected folder.
+    /// Fetches headers of `set` (UIDs or sequence numbers) from the selected folder. A server
+    /// whose partial answers do not parse gets the request once more without previews.
     async fn fetch_headers(&mut self, set: String, by_uid: bool) -> Result<Vec<Fetch>> {
+        let res = self.fetch_headers_once(&set, by_uid).await;
+        match res {
+            Err(e) if self.partial_fetch && e.is_unreadable_answer() => {
+                tracing::info!(account = %self.account_id, "server sends unparsable partial fetches, disabling previews");
+                self.partial_fetch = false;
+                // The stream is out of step after a parse error.
+                let path = self.selected.clone();
+                self.reset();
+                let Some(path) = path else { return Err(e) };
+                self.select(&path).await?;
+                self.fetch_headers_once(&set, by_uid).await
+            }
+            res => res,
+        }
+    }
+
+    async fn fetch_headers_once(&mut self, set: &str, by_uid: bool) -> Result<Vec<Fetch>> {
         let query = self.header_query();
         let session = self
             .session
             .as_mut()
             .ok_or_else(|| AppError::Network("not connected".into()))?;
-        let res = if by_uid {
+        if by_uid {
             match session.uid_fetch(set, query).await {
                 Ok(stream) => collect(stream).await,
                 Err(e) => Err(e.into()),
@@ -145,16 +164,7 @@ impl Conn {
                 Ok(stream) => collect(stream).await,
                 Err(e) => Err(e.into()),
             }
-        };
-        if let Err(e) = &res {
-            if self.partial_fetch && e.to_string().contains("during parsing") {
-                tracing::info!(account = %self.account_id, "server sends unparsable partial fetches, disabling previews");
-                self.partial_fetch = false;
-                // The stream is out of sync after a parse error.
-                self.reset();
-            }
         }
-        res
     }
 
     async fn select(&mut self, path: &str) -> Result<async_imap::types::Mailbox> {
@@ -190,13 +200,13 @@ impl Conn {
 pub async fn sync_account(conn: &mut Conn) -> Result<()> {
     let account = conn.account()?;
     let core = conn.core.clone();
-    let mut folders = {
+    let folders = {
         let session = conn.session().await?;
         folders::sync_folder_list(&core, session, &account).await?
     };
     conn.selected = None;
     conn.core.mail_changed(&account.id, None);
-    folders.retain(|f| !f.hidden);
+    let (hidden, mut folders): (Vec<FolderRow>, Vec<FolderRow>) = folders.into_iter().partition(|f| f.hidden);
     folders.sort_by_key(|f| sync_rank(&f.role));
     for folder in folders {
         match sync_folder(conn, &folder).await {
@@ -204,6 +214,18 @@ pub async fn sync_account(conn: &mut Conn) -> Result<()> {
             // A single broken folder (no permission, odd name) must not stop the rest.
             Err(AppError::Imap(msg)) => {
                 tracing::warn!(folder = %folder.path, "folder sync failed: {msg}");
+                conn.reset();
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    for folder in hidden {
+        match sync_stored(conn, &folder).await {
+            Ok(true) => core.mail_changed(&account.id, Some(folder.id)),
+            Ok(false) => {}
+            Err(AppError::Imap(msg)) => {
+                tracing::warn!(folder = %folder.path, "folder sync failed: {msg}");
+                conn.reset();
             }
             Err(e) => return Err(e),
         }
@@ -562,7 +584,7 @@ pub async fn load_older(conn: &mut Conn, folder_id: i64, batch: usize) -> Result
     uids.truncate(batch);
     let more = uids.len() == batch;
     if let Some(&lowest) = uids.last() {
-        let fetches = conn.fetch_headers(uid_set(&uids), true).await?;
+        let fetches = fetch_headers_each(conn, &folder, &uids).await?;
         store_fetches(&core, &account, &folder, &fetches, None)?;
         // The batch is contiguous with the range above it, so the range now starts here. The
         // background and a scroll in the list can load the same folder at once, so the range
@@ -575,6 +597,35 @@ pub async fn load_older(conn: &mut Conn, folder_id: i64, batch: usize) -> Result
         core.db.with(|c| queries::set_fully_loaded(c, folder.id, true))?;
     }
     Ok(more)
+}
+
+/// Fetches headers, leaving out only the messages whose answer the parser cannot read. A batch
+/// whose answer cannot be read is tried again (without previews, which are the usual cause) and
+/// then message by message.
+async fn fetch_headers_each(conn: &mut Conn, folder: &FolderRow, uids: &[u32]) -> Result<Vec<Fetch>> {
+    for _ in 0..2 {
+        conn.ensure_selected(&folder.path).await?;
+        match conn.fetch_headers(uid_set(uids), true).await {
+            Ok(f) => return Ok(f),
+            Err(e) if !e.is_unreadable_answer() => return Err(e),
+            Err(_) => conn.reset(),
+        }
+    }
+    let mut out = Vec::new();
+    let mut left_out = 0;
+    for uid in uids {
+        conn.ensure_selected(&folder.path).await?;
+        match conn.fetch_headers(uid.to_string(), true).await {
+            Ok(f) => out.extend(f),
+            Err(e) if !e.is_unreadable_answer() => return Err(e),
+            Err(_) => {
+                left_out += 1;
+                conn.reset();
+            }
+        }
+    }
+    tracing::info!(folder = %folder.path, count = left_out, "messages left out, the server's answer could not be read");
+    Ok(out)
 }
 
 /// Loads the next batch of older headers into the first visible folder that still has some on
@@ -605,40 +656,57 @@ pub async fn backfill_step(conn: &mut Conn, skip: &mut HashSet<i64>) -> Result<b
 
 /// One step of filling in the mailbox in the background: the headers of older mail first, then
 /// the text of every message for search. Returns `false` once everything is in.
-pub async fn fill_in_step(conn: &mut Conn, skip: &mut HashSet<i64>) -> Result<bool> {
-    if backfill_step(conn, skip).await? {
+pub async fn fill_in_step(conn: &mut Conn, state: &mut FillIn) -> Result<bool> {
+    if backfill_step(conn, &mut state.skip).await? {
         return Ok(true);
     }
-    super::text::text_step(conn, skip).await
+    super::text::text_step(conn, state).await
 }
 
-/// Messages found by a search on the server that are fetched per folder when not stored yet.
-const MAX_SEARCH_FETCH: usize = 200;
+/// A message a search on the server found: its folder and UID.
+pub type Hit = (i64, u32);
 
-/// The SEARCH criteria for what someone typed. Gmail gets its own search syntax (X-GM-RAW), so
-/// the hits match the web; other servers look for every word in the text. Words with letters
-/// beyond ASCII go as a literal where the server takes one without a round trip.
+/// Hits fetched per folder when they are not stored yet.
+const MAX_SEARCH_FETCH: usize = 200;
+/// Gmail hits in All Mail that are looked up per search, the newest.
+const MAX_ALL_MAIL_HITS: usize = 300;
+
+/// The SEARCH criteria for what someone typed, or `None` when it cannot go to this server.
+/// Gmail gets its own search syntax (X-GM-RAW), so the hits match the web; other servers look
+/// for every word in the text. Control characters never reach the server, they would end the
+/// command. Text beyond ASCII only goes as a literal, and only where the server takes one without
+/// a round trip (LITERAL+ or LITERAL-), since a quoted string must be 7-bit.
 pub fn search_criteria(query: &str, caps: Caps) -> Option<String> {
-    let query = query.trim();
-    if query.is_empty() {
+    let query: String = query
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let query = query.split_whitespace().collect::<Vec<_>>().join(" ");
+    let ascii = query.is_ascii();
+    if query.is_empty() || (!ascii && (!caps.literal_plus || query.len() > 4096)) {
         return None;
     }
-    let ascii = query.is_ascii();
     let string = |s: &str| {
-        if !ascii && caps.literal_plus && s.len() <= 4096 {
-            format!("{{{}+}}\r\n{s}", s.len())
-        } else {
+        if ascii {
             format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+        } else {
+            format!("{{{}+}}\r\n{s}", s.len())
         }
     };
     let criteria = if caps.gmail {
-        format!("X-GM-RAW {}", string(query))
+        format!("X-GM-RAW {}", string(&query))
     } else {
-        query
+        // As in the local search: quotes and a trailing `*` are search syntax, not text.
+        let words: Vec<String> = query
             .split_whitespace()
-            .map(|w| format!("TEXT {}", string(w)))
-            .collect::<Vec<_>>()
-            .join(" ")
+            .map(|w| w.replace('"', "").trim_end_matches('*').to_string())
+            .filter(|w| !w.is_empty())
+            .map(|w| format!("TEXT {}", string(&w)))
+            .collect();
+        if words.is_empty() {
+            return None;
+        }
+        words.join(" ")
     };
     Some(if ascii {
         criteria
@@ -647,54 +715,190 @@ pub fn search_criteria(query: &str, caps: Caps) -> Option<String> {
     })
 }
 
-/// Searches the visible folders of the account on the server and returns the local ids of what
-/// it finds. Hits that are not stored yet (older mail still loading) are fetched first. A folder
-/// the server cannot search is left out.
-pub async fn search_server(conn: &mut Conn, query: &str) -> Result<Vec<i64>> {
+/// Searches the account on the server and returns what it found. Gmail searches All Mail, so
+/// archived mail turns up too, other servers every visible folder. Messages found that are not
+/// stored yet are fetched, as long as the user changed nothing meanwhile. A folder the server
+/// cannot search is left out. `cancelled` stops between folders once nobody waits any more.
+pub async fn search_server(
+    conn: &mut Conn,
+    query: &str,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Result<Vec<Hit>> {
     let core = conn.core.clone();
     let account = conn.account()?;
     conn.session().await?;
-    let Some(criteria) = search_criteria(query, conn.caps()) else {
+    let caps = conn.caps();
+    let Some(criteria) = search_criteria(query, caps) else {
         return Ok(Vec::new());
     };
-    let mut folders = core.db.with(|c| queries::folder_rows(c, &account.id))?;
-    folders.retain(|f| !f.hidden);
-    folders.sort_by_key(|f| sync_rank(&f.role));
-    let mut ids = Vec::new();
-    for folder in folders {
-        let session = conn.ensure_selected(&folder.path).await?;
-        let found: Vec<u32> = match session.uid_search(&criteria).await {
-            Ok(found) => found.into_iter().collect(),
-            Err(e) => match AppError::from(e) {
-                e @ AppError::Network(_) => return Err(e),
-                // The query itself is left out of the log.
-                e => {
-                    tracing::info!(folder = %folder.path, "search on the server failed: {e}");
-                    conn.reset();
-                    continue;
-                }
-            },
-        };
-        if found.is_empty() {
-            continue;
+    let folders = core.db.with(|c| queries::folder_rows(c, &account.id))?;
+    if caps.gmail {
+        if let Some(all) = folders.iter().find(|f| f.role == "all") {
+            return search_all_mail(conn, &account, all, &criteria).await;
         }
-        let known: HashSet<u32> = core
-            .db
-            .with(|c| queries::uids_for(c, folder.id, &found))?
-            .into_iter()
-            .collect();
-        let mut missing: Vec<u32> = found.iter().copied().filter(|u| !known.contains(u)).collect();
-        if !missing.is_empty() {
-            missing.sort_unstable_by(|a, b| b.cmp(a));
-            missing.truncate(MAX_SEARCH_FETCH);
-            let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
-            if store_fetches(&core, &account, &folder, &fetches, None)? > 0 {
-                core.mail_changed(&account.id, Some(folder.id));
-            }
-        }
-        ids.extend(core.db.with(|c| queries::ids_for_uids(c, folder.id, &found))?);
     }
-    Ok(ids)
+    let mut visible: Vec<FolderRow> = folders.into_iter().filter(|f| !f.hidden).collect();
+    visible.sort_by_key(|f| sync_rank(&f.role));
+    let mut hits = Vec::new();
+    for folder in visible {
+        if cancelled() {
+            break;
+        }
+        match search_folder(conn, &account, &folder, &criteria).await {
+            Ok(h) => hits.extend(h),
+            // No rights, or gone since the folder list was read. The query stays out of the log.
+            Err(AppError::Imap(msg)) => {
+                tracing::info!(folder = %folder.path, "search on the server failed: {msg}");
+                conn.reset();
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(hits)
+}
+
+async fn search_folder(
+    conn: &mut Conn,
+    account: &Account,
+    folder: &FolderRow,
+    criteria: &str,
+) -> Result<Vec<Hit>> {
+    let core = conn.core.clone();
+    let actions = conn.actions.mark();
+    let mb = conn.select(&folder.path).await?;
+    // The numbers only mean the stored messages after the first sync, and while the server
+    // keeps them.
+    if folder.uidvalidity.is_none() || folder.uidvalidity != mb.uid_validity {
+        return Ok(Vec::new());
+    }
+    let session = conn.session.as_mut().expect("selected");
+    let found: Vec<u32> = session.uid_search(criteria).await?.into_iter().collect();
+    if found.is_empty() {
+        return Ok(Vec::new());
+    }
+    let known: HashSet<u32> = core
+        .db
+        .with(|c| queries::uids_for(c, folder.id, &found))?
+        .into_iter()
+        .collect();
+    // Older mail that is still loading is fetched now. Anything else missing here is new, or was
+    // just moved or deleted; the sync takes care of that, and storing it would confuse it.
+    let window = core.db.with(|c| queries::window_start(c, folder.id))?;
+    let mut missing: Vec<u32> = found
+        .iter()
+        .copied()
+        .filter(|u| !known.contains(u) && window.is_some_and(|w| *u < w))
+        .collect();
+    if !missing.is_empty() && conn.actions.unchanged_since(actions) {
+        missing.sort_unstable_by(|a, b| b.cmp(a));
+        missing.truncate(MAX_SEARCH_FETCH);
+        let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
+        if store_fetches(&core, account, folder, &fetches, None)? > 0 {
+            core.mail_changed(&account.id, Some(folder.id));
+        }
+    }
+    let stored = core.db.with(|c| queries::uids_for(c, folder.id, &found))?;
+    Ok(stored.into_iter().map(|u| (folder.id, u)).collect())
+}
+
+/// Gmail: one search over All Mail. Hits are matched to the stored messages by Message-ID,
+/// since Gmail shows one message in several folders. Archived mail, which is in no folder
+/// redpanda shows, is stored with the hidden All Mail folder, where only search finds it.
+async fn search_all_mail(
+    conn: &mut Conn,
+    account: &Account,
+    all: &FolderRow,
+    criteria: &str,
+) -> Result<Vec<Hit>> {
+    let core = conn.core.clone();
+    let actions = conn.actions.mark();
+    let mb = conn.select(&all.path).await?;
+    if all.uidvalidity != mb.uid_validity {
+        core.db.with(|c| {
+            queries::reset_folder(c, all.id)?;
+            queries::set_uidvalidity(c, all.id, mb.uid_validity)
+        })?;
+    }
+    let session = conn.session.as_mut().expect("selected");
+    let mut found: Vec<u32> = session.uid_search(criteria).await?.into_iter().collect();
+    found.sort_unstable_by(|a, b| b.cmp(a));
+    found.truncate(MAX_ALL_MAIL_HITS);
+    if found.is_empty() {
+        return Ok(Vec::new());
+    }
+    let envelopes = collect(session.uid_fetch(uid_set(&found), "(UID ENVELOPE)").await?).await?;
+    let ids: Vec<(u32, Option<String>)> = envelopes
+        .iter()
+        .filter_map(|f| {
+            let mid = f
+                .envelope()
+                .and_then(|e| e.message_id.as_ref())
+                .map(|m| {
+                    String::from_utf8_lossy(m)
+                        .trim()
+                        .trim_matches(['<', '>'])
+                        .to_string()
+                })
+                .filter(|m| !m.is_empty());
+            Some((f.uid?, mid))
+        })
+        .collect();
+    let mids: Vec<String> = ids.iter().filter_map(|(_, m)| m.clone()).collect();
+    let local = core
+        .db
+        .with(|c| queries::hits_by_message_id(c, &account.id, &mids))?;
+    let mut hits = Vec::new();
+    let mut missing = Vec::new();
+    for (uid, mid) in ids {
+        match mid.as_ref().and_then(|m| local.get(m)) {
+            Some(hit) => hits.push(*hit),
+            None => missing.push(uid),
+        }
+    }
+    if !missing.is_empty() && conn.actions.unchanged_since(actions) {
+        missing.sort_unstable_by(|a, b| b.cmp(a));
+        missing.truncate(MAX_SEARCH_FETCH);
+        let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
+        if store_fetches(&core, account, all, &fetches, None)? > 0 {
+            core.mail_changed(&account.id, Some(all.id));
+        }
+        let stored = core.db.with(|c| queries::uids_for(c, all.id, &missing))?;
+        hits.extend(stored.into_iter().map(|u| (all.id, u)));
+    }
+    Ok(hits)
+}
+
+/// Keeps what a search stored in a hidden folder (Gmail's All Mail) in step with the server:
+/// flags, and dropping what is gone. Nothing else of such a folder is loaded.
+async fn sync_stored(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
+    let core = conn.core.clone();
+    let stored = core
+        .db
+        .with(|c| queries::uids_in_range(c, folder.id, 0, u32::MAX))?;
+    if stored.is_empty() {
+        return Ok(false);
+    }
+    let mb = conn.select(&folder.path).await?;
+    if folder.uidvalidity != mb.uid_validity {
+        core.db.with(|c| {
+            queries::reset_folder(c, folder.id)?;
+            queries::set_uidvalidity(c, folder.id, mb.uid_validity)
+        })?;
+        return Ok(true);
+    }
+    let mut changed = false;
+    for chunk in stored.chunks(UNSUBSCRIBE_BATCH) {
+        let session = conn.session.as_mut().expect("selected");
+        let fetches = collect(session.uid_fetch(uid_set(chunk), "(UID FLAGS)").await?).await?;
+        changed |= apply_flags(&core, folder, &fetches)?;
+        let present: HashSet<u32> = session.uid_search(format!("UID {}", uid_set(chunk))).await?;
+        let gone: Vec<u32> = chunk.iter().copied().filter(|u| !present.contains(u)).collect();
+        if !gone.is_empty() {
+            core.db.with(|c| queries::delete_by_uids(c, folder.id, &gone))?;
+            changed = true;
+        }
+    }
+    Ok(changed)
 }
 
 /// Re-fetches headers for UIDs, used to undo an optimistic local change after a failed action.
@@ -714,6 +918,10 @@ pub async fn refetch_uids(conn: &mut Conn, folder_id: i64, uids: &[u32]) -> Resu
 
 pub async fn fetch_body(conn: &mut Conn, message_id: i64) -> Result<()> {
     let core = conn.core.clone();
+    // Asked for twice while the first download ran (the reader reloads on every list refresh).
+    if core.db.with(|c| queries::has_body(c, message_id))? {
+        return Ok(());
+    }
     let msg = core
         .db
         .with(|c| queries::message_refs(c, &[message_id]))?
@@ -872,10 +1080,28 @@ mod tests {
             search_criteria("Rückgabe", gmail).unwrap(),
             "CHARSET UTF-8 X-GM-RAW {9+}\r\nRückgabe"
         );
+        // A quoted string must be 7-bit: without literals there is no server search.
+        assert_eq!(search_criteria("Rückgabe", plain), None);
+        let dovecot = Caps {
+            literal_plus: true,
+            ..Caps::default()
+        };
         assert_eq!(
-            search_criteria("Rückgabe", plain).unwrap(),
-            r#"CHARSET UTF-8 TEXT "Rückgabe""#
+            search_criteria("Rückgabe", dovecot).unwrap(),
+            "CHARSET UTF-8 TEXT {9+}\r\nRückgabe"
         );
+        // Line breaks would end the command and start a new one.
+        assert_eq!(
+            search_criteria("x\r\nA1 UID MOVE 1:* Trash", gmail).unwrap(),
+            r#"X-GM-RAW "x A1 UID MOVE 1:* Trash""#
+        );
+        assert_eq!(search_criteria("\r\n\t", gmail), None);
+        // Quotes and a trailing star are search syntax elsewhere.
+        assert_eq!(
+            search_criteria(r#""MacBook Air" rech*"#, plain).unwrap(),
+            r#"TEXT "MacBook" TEXT "Air" TEXT "rech""#
+        );
+        assert_eq!(search_criteria(r#"" *"#, plain), None);
     }
 
     #[test]

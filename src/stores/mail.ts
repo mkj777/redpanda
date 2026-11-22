@@ -169,15 +169,16 @@ export const useMail = create<MailState>()((set, get) => ({
 
   search: (query) => {
     const q = query.trim();
+    const current = get().view;
+    // The same search again (a space typed at the end): keep the one already under way.
+    if (q && current.kind === "search" && current.query === q) return;
     clearTimeout(serverSearch);
     if (!q) {
       serverToken++;
       set({ searchingServer: false });
-      if (get().view.kind === "search") get().setView(get().lastView);
+      if (current.kind === "search") get().setView(get().lastView);
       return;
     }
-    const current = get().view;
-    if (current.kind === "search" && current.query === q) return;
     get().setView({ kind: "search", query: q });
     // The servers also know mail whose text is not loaded yet. Their hits join the list once
     // they answer; asked only after typing pauses, since every account gets a request.

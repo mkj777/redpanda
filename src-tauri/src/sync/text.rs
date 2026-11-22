@@ -1,14 +1,14 @@
 //! The text of every message for search, loaded in the background once the headers are in: only
-//! the readable part of a message (plain text, or HTML when there is none), never its
-//! attachments, plus the names of the attachments.
+//! the readable part of a message, never its attachments, plus the names of the attachments.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use async_imap::imap_proto::types::{
     BodyContentCommon, BodyParams, BodyStructure, ContentEncoding, SectionPath,
 };
 use async_imap::types::Fetch;
-use percent_encoding::percent_decode_str;
+use mail_parser::{MessageParser, MimeHeaders};
 
 use super::engine::{sync_rank, Conn};
 use super::imap_conn::{collect, uid_set};
@@ -21,6 +21,35 @@ const TEXT_BATCH: usize = 50;
 /// Text parts larger than this are left out. They are rarely something a person wrote, and the
 /// index keeps only the start of a text anyway.
 const MAX_TEXT_PART: u32 = 2_000_000;
+/// How often a server may leave a message out of its answer before it counts as unreadable.
+const MAX_MISSES: u8 = 3;
+/// The lists and the progress in the sidebar are refreshed at most this often while texts load.
+/// Every refresh makes an open mail reload, so once per batch would be too much.
+const NOTICE_EVERY: Duration = Duration::from_secs(5);
+
+/// What the background fill-in keeps from one step to the next.
+#[derive(Default)]
+pub struct FillIn {
+    /// Folders left out until the next full sync, because the server would not read them.
+    pub skip: HashSet<i64>,
+    /// How often the server left a message out of its answer, by message id.
+    misses: HashMap<i64, u8>,
+    last_notice: Option<Instant>,
+    /// A folder whose loaded texts the lists have not been told about yet.
+    unannounced: Option<i64>,
+}
+
+impl FillIn {
+    fn notice(&mut self, conn: &Conn, folder_id: i64, force: bool) {
+        if force || self.last_notice.is_none_or(|t| t.elapsed() >= NOTICE_EVERY) {
+            conn.core.mail_changed(&conn.account_id, Some(folder_id));
+            self.last_notice = Some(Instant::now());
+            self.unannounced = None;
+        } else {
+            self.unannounced = Some(folder_id);
+        }
+    }
+}
 
 /// The body part that holds a message's text.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,51 +76,62 @@ pub struct Plan {
 }
 
 pub fn plan(bs: &BodyStructure) -> Plan {
-    let mut plain = None;
-    let mut html = None;
     let mut attachments = Vec::new();
-    walk(bs, &[], &mut plain, &mut html, &mut attachments);
+    names(bs, &mut attachments);
     Plan {
-        text: plain.or(html),
+        text: text_part(bs, &[]),
         attachments,
     }
 }
 
-fn walk(
-    bs: &BodyStructure,
-    path: &[u32],
-    plain: &mut Option<TextPart>,
-    html: &mut Option<TextPart>,
-    attachments: &mut Vec<String>,
-) {
+/// The part a reader sees as the text: plain text over HTML only where both say the same
+/// (multipart/alternative), otherwise the first text in the message. A mailing list's plain
+/// footer after an HTML body is not the text.
+fn text_part(bs: &BodyStructure, path: &[u32]) -> Option<TextPart> {
     match bs {
-        BodyStructure::Multipart { bodies, .. } => {
-            for (i, body) in bodies.iter().enumerate() {
+        BodyStructure::Multipart { common, bodies, .. } => {
+            let children = bodies.iter().enumerate().filter_map(|(i, body)| {
                 let mut child = path.to_vec();
                 child.push(i as u32 + 1);
-                walk(body, &child, plain, html, attachments);
+                text_part(body, &child)
+            });
+            if common.ty.subtype.eq_ignore_ascii_case("alternative") {
+                let found: Vec<TextPart> = children.collect();
+                found
+                    .iter()
+                    .find(|t| t.subtype == "plain")
+                    .or(found.first())
+                    .cloned()
+            } else {
+                children.into_iter().next()
             }
         }
         BodyStructure::Text { common, other, .. } => {
-            let disposition = disposition(common);
-            let name = file_name(common);
-            if disposition.as_deref() == Some("attachment") || (disposition.is_none() && name.is_some()) {
-                attachments.extend(name);
-                return;
+            if is_attachment(common) {
+                return None;
             }
-            let slot = match common.ty.subtype.to_ascii_lowercase().as_str() {
-                "plain" => plain,
-                "html" => html,
-                _ => return,
-            };
-            if slot.is_none() {
-                *slot = Some(TextPart {
-                    path: if path.is_empty() { vec![1] } else { path.to_vec() },
-                    subtype: common.ty.subtype.to_ascii_lowercase(),
-                    charset: param(&common.ty.params, "charset"),
-                    encoding: encoding_name(&other.transfer_encoding),
-                    octets: other.octets,
-                });
+            let subtype = common.ty.subtype.to_ascii_lowercase();
+            if subtype != "plain" && subtype != "html" {
+                return None;
+            }
+            Some(TextPart {
+                path: if path.is_empty() { vec![1] } else { path.to_vec() },
+                subtype,
+                charset: param(&common.ty.params, "charset"),
+                encoding: encoding_name(&other.transfer_encoding),
+                octets: other.octets,
+            })
+        }
+        BodyStructure::Basic { .. } | BodyStructure::Message { .. } => None,
+    }
+}
+
+fn names(bs: &BodyStructure, out: &mut Vec<String>) {
+    match bs {
+        BodyStructure::Multipart { bodies, .. } => bodies.iter().for_each(|b| names(b, out)),
+        BodyStructure::Text { common, .. } => {
+            if is_attachment(common) {
+                out.extend(file_name(common));
             }
         }
         BodyStructure::Basic { common, other, .. } | BodyStructure::Message { common, other, .. } => {
@@ -99,8 +139,17 @@ fn walk(
             if disposition(common).as_deref() == Some("inline") && other.id.is_some() {
                 return;
             }
-            attachments.extend(file_name(common));
+            out.extend(file_name(common));
         }
+    }
+}
+
+/// A text part sent as a file (`notes.txt`), not as the message's text.
+fn is_attachment(common: &BodyContentCommon) -> bool {
+    match disposition(common).as_deref() {
+        Some("attachment") => true,
+        None => file_name(common).is_some(),
+        _ => false,
     }
 }
 
@@ -119,44 +168,33 @@ fn file_name(common: &BodyContentCommon) -> Option<String> {
 }
 
 /// A parameter value, decoded from RFC 2047 words or RFC 2231 (`filename*=utf-8''R%C3%BCck.pdf`,
-/// also split into `filename*0*`, `filename*1*`, ...).
+/// split into `filename*0*`, `filename*1*`, in any charset). The server hands the parameters over
+/// as they were in the message, so they are put back into a header for mail-parser to decode.
 fn param(params: &BodyParams, key: &str) -> Option<String> {
     let list = params.as_ref()?;
-    if let Some((_, v)) = list.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)) {
-        return Some(decode_words(v));
-    }
-    let mut parts: Vec<(u32, bool, &str)> = list
-        .iter()
-        .filter_map(|(k, v)| {
-            let k = k.to_ascii_lowercase();
-            let rest = k.strip_prefix(key)?.strip_prefix('*')?;
-            let (n, encoded) = if rest.is_empty() {
-                (0, true)
-            } else {
-                (rest.trim_end_matches('*').parse().ok()?, rest.ends_with('*'))
-            };
-            Some((n, encoded, v.as_ref()))
-        })
-        .collect();
-    if parts.is_empty() {
-        return None;
-    }
-    parts.sort_by_key(|p| p.0);
-    let mut bytes = Vec::new();
-    for (i, (_, encoded, v)) in parts.iter().enumerate() {
-        if *encoded {
-            // The first piece starts with charset'language'.
-            let v = if i == 0 {
-                v.splitn(3, '\'').nth(2).unwrap_or(v)
-            } else {
-                v
-            };
-            bytes.extend(percent_decode_str(v));
+    let mut header = String::from("Content-Type: application/octet-stream");
+    for (k, v) in list {
+        let k: String = k
+            .chars()
+            .filter(|c| c.is_ascii_graphic() && !matches!(c, ';' | '=' | '"'))
+            .collect();
+        let v: String = v.chars().filter(|c| !c.is_control()).collect();
+        if k.is_empty() {
+            continue;
+        }
+        if k.ends_with('*') {
+            header.push_str(&format!("; {k}={}", v.replace([' ', ';', '"'], "")));
         } else {
-            bytes.extend_from_slice(v.as_bytes());
+            header.push_str(&format!(
+                "; {k}=\"{}\"",
+                v.replace('\\', "\\\\").replace('"', "\\\"")
+            ));
         }
     }
-    Some(String::from_utf8_lossy(&bytes).into_owned())
+    header.push_str("\r\n\r\n");
+    let msg = MessageParser::default().parse(header.as_bytes())?;
+    let value = msg.content_type()?.attribute(key)?;
+    Some(decode_words(value))
 }
 
 fn encoding_name(e: &ContentEncoding) -> String {
@@ -171,11 +209,11 @@ fn encoding_name(e: &ContentEncoding) -> String {
 }
 
 /// Reads the text of the next batch of messages in the first folder that still has some.
-/// Folders in `skip` are left out. Returns `false` once every text is in the index.
-pub async fn text_step(conn: &mut Conn, skip: &mut HashSet<i64>) -> Result<bool> {
+/// Returns `false` once every text is in the index.
+pub async fn text_step(conn: &mut Conn, state: &mut FillIn) -> Result<bool> {
     let core = conn.core.clone();
     let mut folders = core.db.with(|c| queries::folder_rows(c, &conn.account_id))?;
-    folders.retain(|f| !f.hidden && !skip.contains(&f.id));
+    folders.retain(|f| !f.hidden && !state.skip.contains(&f.id));
     folders.sort_by_key(|f| sync_rank(&f.role));
     for folder in folders {
         let pending = core
@@ -184,31 +222,40 @@ pub async fn text_step(conn: &mut Conn, skip: &mut HashSet<i64>) -> Result<bool>
         if pending.is_empty() {
             continue;
         }
-        match load_texts(conn, &folder, &pending).await {
+        match load_texts(conn, &folder, &pending, state).await {
             Ok(()) => {}
             // A folder that cannot be read must not stop the others.
             Err(AppError::Imap(msg)) => {
                 tracing::warn!(folder = %folder.path, "loading mail text failed: {msg}");
-                skip.insert(folder.id);
+                state.skip.insert(folder.id);
                 conn.reset();
             }
             Err(e) => return Err(e),
         }
         return Ok(true);
     }
+    if let Some(folder_id) = state.unannounced {
+        state.notice(conn, folder_id, true);
+    }
     Ok(false)
 }
 
-/// A message to turn into a `LoadedText`: its id, the bytes of its text part and attachment names.
-type TextJob = (i64, Option<(Vec<u8>, TextPart)>, Vec<String>);
-
-async fn load_texts(conn: &mut Conn, folder: &FolderRow, pending: &[(i64, u32)]) -> Result<()> {
+async fn load_texts(
+    conn: &mut Conn,
+    folder: &FolderRow,
+    pending: &[(i64, u32)],
+    state: &mut FillIn,
+) -> Result<()> {
     let uids: Vec<u32> = pending.iter().map(|(_, uid)| *uid).collect();
-    let (structures, _) = fetch_each(conn, folder, &uids, "(UID BODYSTRUCTURE)").await?;
+    let (structures, mut unreadable) = fetch_each(conn, folder, &uids, "(UID BODYSTRUCTURE)").await?;
     let plans: HashMap<u32, Plan> = structures
         .iter()
         .filter_map(|f| Some((f.uid?, plan(f.bodystructure()?))))
         .collect();
+    if plans.is_empty() && unreadable.is_empty() {
+        // Not one answer: the server refuses this folder for now.
+        return Err(AppError::Imap("the server returned no message structure".into()));
+    }
 
     // One request per part number, most messages share theirs ("1" or "1.1").
     let mut groups: BTreeMap<String, (Vec<u32>, Vec<u32>)> = BTreeMap::new();
@@ -223,7 +270,9 @@ async fn load_texts(conn: &mut Conn, folder: &FolderRow, pending: &[(i64, u32)])
     }
     let mut raw: HashMap<u32, Vec<u8>> = HashMap::new();
     for (section, (path, uids)) in groups {
-        let (fetches, _) = fetch_each(conn, folder, &uids, &format!("(UID BODY.PEEK[{section}])")).await?;
+        let (fetches, failed) =
+            fetch_each(conn, folder, &uids, &format!("(UID BODY.PEEK[{section}])")).await?;
+        unreadable.extend(failed);
         let wanted = SectionPath::Part(path, None);
         for f in &fetches {
             if let (Some(uid), Some(bytes)) = (f.uid, f.section(&wanted)) {
@@ -232,14 +281,28 @@ async fn load_texts(conn: &mut Conn, folder: &FolderRow, pending: &[(i64, u32)])
         }
     }
 
-    let jobs: Vec<TextJob> = pending
-        .iter()
-        .map(|(id, uid)| {
-            let p = plans.get(uid);
-            let text = p.and_then(|p| Some((raw.remove(uid)?, p.text.clone()?)));
-            (*id, text, p.map(|p| p.attachments.clone()).unwrap_or_default())
-        })
-        .collect();
+    let mut jobs: Vec<TextJob> = Vec::new();
+    for (id, uid) in pending {
+        let plan = plans.get(uid);
+        let wants_text = plan.is_some_and(|p| p.text.as_ref().is_some_and(|t| t.octets <= MAX_TEXT_PART));
+        let got = raw.remove(uid);
+        // Left out of the answer without an error: try again later, a few times.
+        let missing = !unreadable.contains(uid) && (plan.is_none() || (wants_text && got.is_none()));
+        if missing {
+            let n = state.misses.entry(*id).or_default();
+            *n += 1;
+            if *n < MAX_MISSES {
+                continue;
+            }
+        }
+        state.misses.remove(id);
+        let text = got.zip(plan.and_then(|p| p.text.clone()));
+        let names = plan.map(|p| p.attachments.clone()).unwrap_or_default();
+        jobs.push((*id, text, names));
+    }
+    if jobs.is_empty() {
+        return Ok(());
+    }
     let texts = tokio::task::spawn_blocking(move || {
         jobs.into_iter()
             .map(|(message_id, text, names)| LoadedText {
@@ -254,59 +317,58 @@ async fn load_texts(conn: &mut Conn, folder: &FolderRow, pending: &[(i64, u32)])
     .await
     .map_err(|e| AppError::Other(e.to_string()))?;
 
-    let core = conn.core.clone();
-    core.db.with(|c| {
+    conn.core.db.with(|c| {
         let tx = c.transaction()?;
         queries::save_texts(&tx, &texts)?;
         tx.commit()?;
         Ok(())
     })?;
-    core.mail_changed(&conn.account_id, Some(folder.id));
+    state.notice(conn, folder.id, false);
     Ok(())
 }
 
-/// Fetches `query` for `uids`. When the server's answer for the batch cannot be read (one odd
-/// message is enough), each message is asked for on its own, so only that one is left out.
-/// Returns the answers and the UIDs that failed.
+/// A message to turn into a `LoadedText`: its id, the bytes of its text part and attachment names.
+type TextJob = (i64, Option<(Vec<u8>, TextPart)>, Vec<String>);
+
+/// Fetches `query` for `uids`. When the answer for the batch cannot be read (one odd message is
+/// enough), each message is asked for on its own, so only that one is left out. Returns the
+/// answers and the UIDs whose answer could not be read.
 async fn fetch_each(
     conn: &mut Conn,
     folder: &FolderRow,
     uids: &[u32],
     query: &str,
 ) -> Result<(Vec<Fetch>, Vec<u32>)> {
-    let session = conn.ensure_selected(&folder.path).await?;
-    let first = match session.uid_fetch(uid_set(uids), query).await {
-        Ok(stream) => collect(stream).await,
-        Err(e) => Err(e.into()),
-    };
-    match first {
+    match fetch(conn, folder, &uid_set(uids), query).await {
         Ok(fetches) => return Ok((fetches, Vec::new())),
-        Err(e @ AppError::Network(_)) => return Err(e),
-        Err(_) if uids.len() == 1 => {
-            conn.reset();
-            return Ok((Vec::new(), uids.to_vec()));
-        }
-        // The stream is out of step after a parse error.
+        Err(e) if !e.is_unreadable_answer() => return Err(e),
+        // The connection is out of step after an answer that could not be read.
         Err(_) => conn.reset(),
     }
     let mut fetches = Vec::new();
     let mut failed = Vec::new();
     for uid in uids {
-        let session = conn.ensure_selected(&folder.path).await?;
-        let res = match session.uid_fetch(uid.to_string(), query).await {
-            Ok(stream) => collect(stream).await,
-            Err(e) => Err(e.into()),
-        };
-        match res {
+        match fetch(conn, folder, &uid.to_string(), query).await {
             Ok(f) => fetches.extend(f),
-            Err(e @ AppError::Network(_)) => return Err(e),
+            Err(e) if !e.is_unreadable_answer() => return Err(e),
             Err(_) => {
                 failed.push(*uid);
                 conn.reset();
             }
         }
     }
+    if !failed.is_empty() {
+        tracing::info!(folder = %folder.path, count = failed.len(), "messages the server's answer could not be read for");
+    }
     Ok((fetches, failed))
+}
+
+async fn fetch(conn: &mut Conn, folder: &FolderRow, set: &str, query: &str) -> Result<Vec<Fetch>> {
+    let session = conn.ensure_selected(&folder.path).await?;
+    match session.uid_fetch(set, query).await {
+        Ok(stream) => collect(stream).await,
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[cfg(test)]
@@ -400,20 +462,24 @@ mod tests {
         let body = multipart(
             "related",
             vec![
-                multipart("alternative", vec![text("plain", "utf-8"), text("html", "utf-8")]),
+                multipart("alternative", vec![text("html", "utf-8"), text("plain", "utf-8")]),
                 logo,
             ],
         );
         let p = plan(&multipart("mixed", vec![body, pdf]));
         let t = p.text.unwrap();
-        assert_eq!(t.section(), "1.1.1");
+        assert_eq!(t.section(), "1.1.2");
         assert_eq!(t.subtype, "plain");
         assert_eq!(p.attachments, ["BD85386379.pdf"]);
     }
 
     #[test]
-    fn html_when_there_is_no_plain_text() {
-        let p = plan(&multipart("mixed", vec![text("html", "iso-8859-1")]));
+    fn a_list_footer_is_not_the_text() {
+        // Mailman: the HTML post, then the list's plain footer.
+        let p = plan(&multipart(
+            "mixed",
+            vec![text("html", "utf-8"), text("plain", "us-ascii")],
+        ));
         let t = p.text.unwrap();
         assert_eq!((t.section().as_str(), t.subtype.as_str()), ("1", "html"));
     }
@@ -431,28 +497,35 @@ mod tests {
             lines: 1,
             extension: None,
         };
-        let p = plan(&multipart("mixed", vec![text("html", "utf-8"), notes]));
+        let p = plan(&multipart("mixed", vec![notes, text("html", "utf-8")]));
         assert_eq!(p.text.unwrap().subtype, "html");
         assert_eq!(p.attachments, ["notes.txt"]);
     }
 
     #[test]
     fn encoded_file_names() {
-        let encoded = Some(vec![(
-            Cow::Borrowed("filename"),
-            Cow::Borrowed("=?UTF-8?Q?Rechnung_M=C3=A4rz.pdf?="),
-        )]);
-        assert_eq!(param(&encoded, "filename").as_deref(), Some("Rechnung März.pdf"));
-        let rfc2231 = Some(vec![(
-            Cow::Borrowed("filename*"),
-            Cow::Borrowed("utf-8''R%C3%BCckgabe.pdf"),
-        )]);
-        assert_eq!(param(&rfc2231, "filename").as_deref(), Some("Rückgabe.pdf"));
+        let one = |k: &'static str, v: &'static str| Some(vec![(Cow::Borrowed(k), Cow::Borrowed(v))]);
+        assert_eq!(
+            param(&one("filename", "=?UTF-8?Q?Rechnung_M=C3=A4rz.pdf?="), "filename").as_deref(),
+            Some("Rechnung März.pdf")
+        );
+        assert_eq!(
+            param(&one("filename*", "utf-8''R%C3%BCckgabe.pdf"), "filename").as_deref(),
+            Some("Rückgabe.pdf")
+        );
+        assert_eq!(
+            param(&one("filename*", "iso-8859-1''R%FCckgabe.pdf"), "filename").as_deref(),
+            Some("Rückgabe.pdf")
+        );
         let split = Some(vec![
             (Cow::Borrowed("filename*1*"), Cow::Borrowed("%C3%A4t.pdf")),
             (Cow::Borrowed("filename*0*"), Cow::Borrowed("utf-8'de'Zertifik")),
         ]);
         assert_eq!(param(&split, "filename").as_deref(), Some("Zertifikät.pdf"));
+        assert_eq!(
+            param(&one("charset", "ISO-8859-1"), "charset").as_deref(),
+            Some("ISO-8859-1")
+        );
     }
 
     #[test]

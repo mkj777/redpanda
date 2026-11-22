@@ -375,7 +375,8 @@ pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
            CASE WHEN f.fully_loaded AND NOT EXISTS ( \
                SELECT 1 FROM messages m WHERE m.folder_id = f.id AND m.text_state = 0) THEN f.total_count \
              ELSE MIN(f.total_count, \
-               (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id AND m.text_state <> 0)) END \
+               (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id) \
+               - (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id AND m.text_state = 0)) END \
          FROM folders f JOIN accounts a ON a.id = f.account_id WHERE f.hidden = 0 \
          ORDER BY a.sort_order, \
            CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'sent' THEN 2 WHEN 'archive' THEN 3 \
@@ -729,14 +730,14 @@ pub fn list_messages(
 }
 
 /// Like `list_messages`, where a search also shows `server_hits`, the messages a search on the
-/// server found.
+/// server found, as folder and UID.
 pub fn list_messages_with(
     c: &Connection,
     view: &View,
     offset: u32,
     limit: u32,
     threads: bool,
-    server_hits: &[i64],
+    server_hits: &[(i64, u32)],
 ) -> Result<MessagePage> {
     let mut args: Vec<rusqlite::types::Value> = Vec::new();
     let filter = match view {
@@ -764,7 +765,8 @@ pub fn list_messages_with(
             args.push(q.into());
             args.push(serde_json::to_string(server_hits)?.into());
             "(m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1) \
-              OR m.id IN (SELECT value FROM json_each(?2)))"
+              OR m.id IN (SELECT h.id FROM json_each(?2) j JOIN messages h \
+                ON h.folder_id = json_extract(j.value, '$[0]') AND h.uid = json_extract(j.value, '$[1]')))"
                 .to_string()
         }
         View::Sender { account_id, email } => {
@@ -912,7 +914,7 @@ pub fn save_body(c: &Connection, message_id: i64, body: &BodyRow, raw: &[u8]) ->
             attachment_names(
                 body.attachments
                     .iter()
-                    .filter(|a| !a.inline)
+                    .filter(|a| !a.inline && !is_generated_name(&a.filename))
                     .map(|a| a.filename.as_str())
             ),
         ],
@@ -926,6 +928,19 @@ const MAX_INDEXED_CHARS: usize = 100_000;
 
 fn index_text(text: &str) -> String {
     text.chars().take(MAX_INDEXED_CHARS).collect()
+}
+
+/// The names redpanda makes up for attachments that came without one (`attachment-2.ics`,
+/// `message-1.eml`).
+fn is_generated_name(name: &str) -> bool {
+    let generated = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .and_then(|rest| rest.split_once('.'))
+            .is_some_and(|(n, ext)| {
+                !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && !ext.contains('.')
+            })
+    };
+    generated("attachment-") || generated("message-")
 }
 
 /// Attachment names as one searchable string.
@@ -994,16 +1009,44 @@ pub fn uids_for(c: &Connection, folder_id: i64, uids: &[u32]) -> Result<Vec<u32>
     Ok(rows)
 }
 
-/// Local messages for UIDs that a search on the server found.
-pub fn ids_for_uids(c: &Connection, folder_id: i64, uids: &[u32]) -> Result<Vec<i64>> {
-    let list = serde_json::to_string(uids)?;
+/// The stored message for each Message-ID, as folder and UID. A copy in a visible folder wins
+/// over one in a hidden folder (Gmail's All Mail).
+pub fn hits_by_message_id(
+    c: &Connection,
+    account_id: &str,
+    message_ids: &[String],
+) -> Result<std::collections::HashMap<String, (i64, u32)>> {
+    let list = serde_json::to_string(message_ids)?;
     let mut stmt = c.prepare(
-        "SELECT id FROM messages WHERE folder_id = ?1 AND uid IN (SELECT value FROM json_each(?2))",
+        "SELECT m.message_id, m.folder_id, m.uid FROM messages m JOIN folders f ON f.id = m.folder_id \
+         WHERE m.account_id = ?1 AND m.message_id IN (SELECT value FROM json_each(?2)) \
+         ORDER BY f.hidden DESC, m.id DESC",
     )?;
     let rows = stmt
-        .query_map(params![folder_id, list], |r| r.get(0))?
+        .query_map(params![account_id, list], |r| {
+            Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?)))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows)
+    // Later rows win, so the order above leaves the visible, oldest copy.
+    Ok(rows.into_iter().collect())
+}
+
+pub fn set_uidvalidity(c: &Connection, folder_id: i64, uidvalidity: Option<u32>) -> Result<()> {
+    c.execute(
+        "UPDATE folders SET uidvalidity = ?2 WHERE id = ?1",
+        params![folder_id, uidvalidity],
+    )?;
+    Ok(())
+}
+
+pub fn has_body(c: &Connection, message_id: i64) -> Result<bool> {
+    Ok(
+        c.query_row("SELECT 1 FROM bodies WHERE message_id = ?1", [message_id], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some(),
+    )
 }
 
 /// Every stored raw message that has HTML, for re-sanitizing after the rules changed.
@@ -1487,10 +1530,8 @@ mod tests {
                     false,
                 )?;
             }
-            let ids: Vec<i64> = pending_text(c, inbox, 10)?
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
+            let pending = pending_text(c, inbox, 10)?;
+            let ids: Vec<i64> = pending.iter().map(|(id, _)| *id).collect();
             save_texts(
                 c,
                 &[LoadedText {
@@ -1499,7 +1540,7 @@ mod tests {
                     attachments: "BD85386379.pdf".into(),
                 }],
             )?;
-            let search = |c: &Connection, q: &str, hits: &[i64]| -> Result<Vec<i64>> {
+            let search = |c: &Connection, q: &str, hits: &[(i64, u32)]| -> Result<Vec<i64>> {
                 let view = View::Search { query: q.into() };
                 Ok(list_messages_with(c, &view, 0, 10, false, hits)?
                     .items
@@ -1512,7 +1553,7 @@ mod tests {
             // The preview now comes from the text.
             assert_eq!(get_summary(c, ids[0])?.preview, "Dein neues MacBook Air ist da.");
             // What the server found shows up next to the local hits.
-            let mut both = search(c, "macbook", &[ids[1]])?;
+            let mut both = search(c, "macbook", &[(inbox, pending[1].1)])?;
             both.sort();
             let mut expected = ids.clone();
             expected.sort();
@@ -1530,6 +1571,15 @@ mod tests {
             Ok(())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn made_up_attachment_names_stay_out_of_search() {
+        assert!(is_generated_name("attachment-2.ics"));
+        assert!(is_generated_name("message-1.eml"));
+        assert!(!is_generated_name("attachment-final.pdf"));
+        assert!(!is_generated_name("attachment-2.tar.gz"));
+        assert!(!is_generated_name("BD85386379.pdf"));
     }
 
     #[test]
