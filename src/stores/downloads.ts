@@ -74,9 +74,18 @@ export const useDownloads = create<DownloadsState>()((set, get) => ({
   },
 }));
 
-/** The saved file of an attachment, while it still exists. */
-export function savedFile(list: Download[], messageId: number, index: number): Download | undefined {
-  return list.find((d) => d.messageId === messageId && d.index === index && d.exists);
+/** The saved file of an attachment, while it still exists. The mail is recognized by its
+ * account and Message-ID, so a copy in another folder counts too; one without a Message-ID never
+ * matches. */
+export function savedFile(
+  list: Download[],
+  msg: { accountId: string; messageId: string | null },
+  index: number,
+): Download | undefined {
+  if (!msg.messageId) return undefined;
+  return list.find(
+    (d) => d.accountId === msg.accountId && d.messageKey === msg.messageId && d.index === index && d.exists,
+  );
 }
 
 /** Runs something on a downloaded file. When that fails, for one deleted in the meantime, the

@@ -297,7 +297,10 @@ pub struct SyncStatus {
 #[serde(rename_all = "camelCase")]
 pub struct Download {
     pub id: i64,
-    pub message_id: i64,
+    pub account_id: String,
+    /// The Message-ID header of the mail it came from, which stays the same when the mail is
+    /// archived or moved. None for the rare mail without one.
+    pub message_key: Option<String>,
     pub index: u32,
     /// The file name it got, which can differ from the attachment's, as in "bill (1).pdf".
     pub name: String,

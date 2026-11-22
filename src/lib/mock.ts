@@ -710,7 +710,8 @@ export async function mockInvoke(cmd: string, args: Record<string, unknown>): Pr
       if (!att) throw { code: "not_found", message: "attachment" };
       const d: Download = {
         id: downloadSeq++,
-        messageId: args.messageId as number,
+        accountId: detail!.accountId,
+        messageKey: detail!.messageId,
         index: att.index,
         name: freeName(att.filename),
         size: att.size,

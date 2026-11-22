@@ -1398,13 +1398,21 @@ pub const KEPT_DOWNLOADS: i64 = 20;
 
 /// Lists a saved attachment and drops the entries beyond the newest [`KEPT_DOWNLOADS`]. Newest
 /// goes by id, not by `created_at`: a clock set back would otherwise drop the new entry at once.
-pub fn add_download(c: &Connection, message_id: i64, index: u32, path: &str, size: i64) -> Result<i64> {
+pub fn add_download(
+    c: &Connection,
+    account_id: &str,
+    message_key: Option<&str>,
+    index: u32,
+    path: &str,
+    size: i64,
+) -> Result<i64> {
     // Downloads never overwrite, so an entry with this path is one whose file was deleted since;
     // left in place, it would now show this file as its own.
     c.execute("DELETE FROM downloads WHERE path = ?1 COLLATE NOCASE", [path])?;
     c.execute(
-        "INSERT INTO downloads (message_id, att_index, path, size, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![message_id, index, path, size, now()],
+        "INSERT INTO downloads (account_id, message_key, att_index, path, size, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![account_id, message_key, index, path, size, now()],
     )?;
     let id = c.last_insert_rowid();
     c.execute(
@@ -1417,25 +1425,37 @@ pub fn add_download(c: &Connection, message_id: i64, index: u32, path: &str, siz
 /// The download list, newest first. Whether each file still exists is up to the caller.
 pub fn list_downloads(c: &Connection) -> Result<Vec<Download>> {
     let mut stmt = c.prepare(
-        "SELECT id, message_id, att_index, path, size, created_at FROM downloads ORDER BY id DESC",
+        "SELECT id, account_id, message_key, att_index, path, size, created_at FROM downloads ORDER BY id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
-        let path: String = r.get(3)?;
+        let path: String = r.get(4)?;
         Ok(Download {
             id: r.get(0)?,
-            message_id: r.get(1)?,
-            index: r.get(2)?,
+            account_id: r.get(1)?,
+            message_key: r.get(2)?,
+            index: r.get(3)?,
             name: std::path::Path::new(&path)
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            size: r.get(4)?,
-            created_at: r.get(5)?,
+            size: r.get(5)?,
+            created_at: r.get(6)?,
             exists: false,
             path,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The account and Message-ID header of a stored message, which identify it across folders.
+pub fn message_identity(c: &Connection, id: i64) -> Result<(String, Option<String>)> {
+    c.query_row(
+        "SELECT account_id, message_id FROM messages WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()?
+    .ok_or_else(|| AppError::NotFound("message".into()))
 }
 
 pub fn download_path(c: &Connection, id: i64) -> Result<Option<String>> {
@@ -1966,7 +1986,14 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         db.with(|c| {
             for i in 0..KEPT_DOWNLOADS + 3 {
-                add_download(c, 7, 0, &format!(r"C:\Users\x\Downloads\bill ({i}).pdf"), 100)?;
+                add_download(
+                    c,
+                    "a",
+                    Some("m7@x"),
+                    0,
+                    &format!(r"C:\Users\x\Downloads\bill ({i}).pdf"),
+                    100,
+                )?;
             }
             let list = list_downloads(c)?;
             assert_eq!(list.len() as i64, KEPT_DOWNLOADS);
@@ -1985,11 +2012,11 @@ mod tests {
             assert!(list_downloads(c)?.is_empty());
 
             // A new download into the path of a deleted one replaces that entry.
-            add_download(c, 7, 0, r"C:\Users\x\Downloads\invoice.pdf", 100)?;
-            add_download(c, 8, 0, r"C:\Users\x\Downloads\Invoice.pdf", 200)?;
+            add_download(c, "a", Some("m7@x"), 0, r"C:\Users\x\Downloads\invoice.pdf", 100)?;
+            add_download(c, "a", None, 0, r"C:\Users\x\Downloads\Invoice.pdf", 200)?;
             let list = list_downloads(c)?;
             assert_eq!(list.len(), 1);
-            assert_eq!((list[0].message_id, list[0].size), (8, 200));
+            assert_eq!((list[0].message_key.as_deref(), list[0].size), (None, 200));
             Ok(())
         })
         .unwrap();

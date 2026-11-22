@@ -101,7 +101,9 @@ export interface AttachmentInfo {
 /** An attachment saved to the Downloads folder, as the download list shows it. */
 export interface Download {
   id: number;
-  messageId: number;
+  accountId: string;
+  /** The Message-ID header of the mail it came from; it stays when the mail is archived or moved. */
+  messageKey: string | null;
   index: number;
   /** The file name it got, which can differ from the attachment's, as in "bill (1).pdf". */
   name: string;

@@ -46,7 +46,7 @@ import { UnsubscribeLink } from "./Unsubscribe";
 /** One attachment of an open mail. Drag it into another app, or save it to Downloads. */
 function AttachmentTile({ msg, a }: { msg: MessageDetail; a: AttachmentInfo }) {
   const { t, i18n } = useTranslation();
-  const saved = useDownloads((s) => savedFile(s.list, msg.id, a.index));
+  const saved = useDownloads((s) => savedFile(s.list, msg, a.index));
   const saving = useDownloads((s) => s.pending.includes(attachmentKey(msg.id, a.index)));
   return (
     <div

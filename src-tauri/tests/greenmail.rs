@@ -242,6 +242,10 @@ async fn full_cycle() {
     let second = app.download_attachment(msgs[0].id, 0, &downloads).unwrap();
     assert_eq!(first.name, "redpanda-test-notes.txt");
     assert_eq!(second.name, "redpanda-test-notes (1).txt");
+    // The entry knows its mail by Message-ID, which stays when the mail moves.
+    assert_eq!(first.account_id, account.id);
+    assert_eq!(first.message_key, detail.message_id);
+    assert!(first.message_key.is_some());
     let saved = app.download_file(first.id).unwrap();
     assert_eq!(std::fs::read_to_string(&saved).unwrap(), "attached text");
     let listed = app.list_downloads().unwrap();

@@ -799,10 +799,10 @@ impl App {
             .join(index.to_string());
         std::fs::create_dir_all(&dir).map_err(|e| AppError::Other(e.to_string()))?;
         let path = dir.join(name);
-        if std::fs::read(&path).is_ok_and(|old| old == bytes) {
-            return Ok(path);
+        if !std::fs::read(&path).is_ok_and(|old| old == bytes) {
+            std::fs::write(&path, bytes).map_err(|e| AppError::Other(e.to_string()))?;
         }
-        std::fs::write(&path, bytes).map_err(|e| AppError::Other(e.to_string()))?;
+        mark_from_internet(&path);
         Ok(path)
     }
 
@@ -813,16 +813,18 @@ impl App {
     /// or "name (1).pdf" when that is taken. It then heads the download list.
     pub fn download_attachment(&self, message_id: i64, index: u32, dir: &Path) -> Result<Download> {
         let (name, _, bytes) = self.attachment(message_id, index)?;
+        let (account_id, message_key) = self.core.db.with(|c| queries::message_identity(c, message_id))?;
         let path = write_new_file(dir, &name, &bytes)?;
+        mark_from_internet(&path);
         let path_str = path.to_string_lossy().into_owned();
         let size = bytes.len() as i64;
-        let id = self
-            .core
-            .db
-            .with(|c| queries::add_download(c, message_id, index, &path_str, size))?;
+        let id = self.core.db.with(|c| {
+            queries::add_download(c, &account_id, message_key.as_deref(), index, &path_str, size)
+        })?;
         Ok(Download {
             id,
-            message_id,
+            account_id,
+            message_key,
             index,
             name: path
                 .file_name()
@@ -1323,6 +1325,22 @@ pub fn check_openable(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Marks a file as coming from the internet (Mark-of-the-Web), as browsers and Outlook do with
+/// attachments: SmartScreen then asks before a program runs, and Office opens documents in
+/// Protected View. Best effort: a drive without alternate data streams (FAT) can't carry it.
+pub fn mark_from_internet(path: &Path) {
+    #[cfg(windows)]
+    {
+        let mut stream = path.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        if let Err(e) = std::fs::write(PathBuf::from(stream), "[ZoneTransfer]\r\nZoneId=3\r\n") {
+            tracing::warn!(error = %e.kind(), "could not mark a saved attachment as from the internet");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+}
+
 /// Writes `bytes` to a new file in `dir` named `name`, or "name (1).ext" and so on when that is
 /// taken. Never overwrites: the name is claimed with `create_new`, so two downloads at once can't
 /// end up in the same file.
@@ -1389,6 +1407,20 @@ mod download_tests {
             write_new_file(&dir, ".profile", b"x").unwrap(),
             dir.join(".profile (1)")
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn saved_files_are_marked_as_from_the_internet() {
+        let dir = std::env::temp_dir().join(format!("redpanda-motw-{}", uuid::Uuid::new_v4().simple()));
+        let path = write_new_file(&dir, "bill.pdf", b"%PDF").unwrap();
+        mark_from_internet(&path);
+        let mut stream = path.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        let mark = std::fs::read_to_string(PathBuf::from(stream)).unwrap();
+        assert!(mark.contains("ZoneId=3"), "{mark}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDF");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
