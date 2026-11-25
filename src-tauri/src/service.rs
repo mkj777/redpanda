@@ -604,20 +604,21 @@ impl App {
                     queries::adjust_unread(&tx, folder_id, delta)?;
                 }
                 tx.commit()?;
+                // Still under the database lock, so a sync never sees the one without the other.
+                self.sync.enqueue(
+                    &account_id,
+                    Job::SetFlag {
+                        folder_id,
+                        uids: changed.iter().map(|m| m.uid).collect(),
+                        flag: match flag {
+                            FlagKind::Seen => "\\Seen",
+                            FlagKind::Flagged => "\\Flagged",
+                        },
+                        add: value,
+                    },
+                );
                 Ok(())
             })?;
-            self.sync.enqueue(
-                &account_id,
-                Job::SetFlag {
-                    folder_id,
-                    uids: changed.iter().map(|m| m.uid).collect(),
-                    flag: match flag {
-                        FlagKind::Seen => "\\Seen",
-                        FlagKind::Flagged => "\\Flagged",
-                    },
-                    add: value,
-                },
-            );
             self.core.mail_changed(&account_id, Some(folder_id));
         }
         Ok(())

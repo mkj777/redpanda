@@ -266,7 +266,7 @@ impl SyncManager {
             .jobs_tx(account_id)
             .ok_or_else(|| AppError::NotFound(format!("account {account_id}")))?;
         let (reply, rx) = oneshot::channel();
-        actions.queued();
+        actions.queued(&job);
         tx.send(JobMsg {
             job,
             reply: Some(reply),
@@ -281,7 +281,7 @@ impl SyncManager {
     pub fn sender(&self, account_id: &str) -> Option<impl Fn(Job) + Send + 'static> {
         let (tx, actions) = self.jobs_tx(account_id)?;
         Some(move |job| {
-            actions.queued();
+            actions.queued(&job);
             let _ = tx.send(JobMsg { job, reply: None });
         })
     }
@@ -371,6 +371,7 @@ async fn interactive_worker(
             conn.reset();
             res = run_job(&mut conn, &job).await;
         }
+        let mut undo_flags = None;
         if let Err(e) = &res {
             tracing::warn!(account = %account_id, ?job, "job failed: {e}");
             if e.is_auth_error() {
@@ -383,14 +384,16 @@ async fn interactive_worker(
                     Job::Move { folder_id, uids, .. } | Job::Expunge { folder_id, uids } => {
                         let _ = engine::refetch_uids(&mut conn, *folder_id, uids).await;
                     }
-                    Job::SetFlag { folder_id, .. } => {
-                        let _ = bg.send(BgCmd::SyncFolder(*folder_id));
-                    }
+                    Job::SetFlag { folder_id, .. } => undo_flags = Some(*folder_id),
                     _ => {}
                 }
             }
         }
-        conn.actions.done();
+        conn.actions.done(&job);
+        // Only now: a sync leaves flags alone while a change to them is pending.
+        if let Some(folder_id) = undo_flags {
+            let _ = bg.send(BgCmd::SyncFolder(folder_id));
+        }
         if let Some(reply) = reply {
             let _ = reply.send(res);
         }

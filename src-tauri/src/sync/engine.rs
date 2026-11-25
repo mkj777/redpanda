@@ -9,6 +9,7 @@ use async_imap::types::{Fetch, Flag};
 use super::folders;
 use super::imap_conn::{self, collect, uid_set, Caps, Session};
 use super::text::FillIn;
+use super::Job;
 use crate::core::Core;
 use crate::error::{AppError, Result};
 use crate::mime::parse::{parse_body, parse_header, thread_key};
@@ -34,21 +35,45 @@ const HEADER_QUERY: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER
 /// The preview is then filled in when the body is fetched.
 const HEADER_QUERY_NO_PREVIEW: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])";
 
-/// The user's actions on the interactive connection of one account. A sync uses it to tell
-/// whether a message missing here was dropped by mistake or by an action still on its way.
+/// The user's actions on the interactive connection of one account.
 #[derive(Default)]
 pub struct Actions {
+    /// All of them. A sync uses it to tell whether a message missing here was dropped by mistake
+    /// or by an action still on its way.
+    pub all: Tracker,
+    /// Reading and starring only. Flags a sync read meanwhile are older than what is set here.
+    pub flags: Tracker,
+}
+
+impl Actions {
+    pub fn queued(&self, job: &Job) {
+        self.all.queued();
+        if matches!(job, Job::SetFlag { .. }) {
+            self.flags.queued();
+        }
+    }
+
+    pub fn done(&self, job: &Job) {
+        self.all.done();
+        if matches!(job, Job::SetFlag { .. }) {
+            self.flags.done();
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Tracker {
     pending: AtomicUsize,
     epoch: AtomicU64,
 }
 
-impl Actions {
-    pub fn queued(&self) {
+impl Tracker {
+    fn queued(&self) {
         self.pending.fetch_add(1, Ordering::SeqCst);
         self.epoch.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn done(&self) {
+    fn done(&self) {
         self.pending.fetch_sub(1, Ordering::SeqCst);
         self.epoch.fetch_add(1, Ordering::SeqCst);
     }
@@ -253,12 +278,13 @@ pub async fn sync_folder_by_id(conn: &mut Conn, folder_id: i64) -> Result<bool> 
 pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
     let core = conn.core.clone();
     let account = conn.account()?;
-    let actions = conn.actions.mark();
+    let actions = conn.actions.all.mark();
     let mb = conn.select(&folder.path).await?;
     let caps = conn.caps();
     let mut changed = false;
 
     let uidvalidity = mb.uid_validity;
+    let mut highestmodseq = mb.highest_modseq;
     let mut known_max = core.db.with(|c| queries::max_uid(c, folder.id))?;
     if folder.uidvalidity.is_some() && folder.uidvalidity != uidvalidity {
         tracing::info!(folder = %folder.path, "UIDVALIDITY changed, resetting folder");
@@ -288,11 +314,16 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
             .with(|c| queries::window_start(c, folder.id))?
             .unwrap_or(1);
         let use_condstore = caps.condstore && folder.highestmodseq.is_some() && mb.highest_modseq.is_some();
+        let flags = conn.actions.flags.mark();
         let present: HashSet<u32> = if use_condstore {
             if mb.highest_modseq != folder.highestmodseq {
                 let query = format!("(UID FLAGS) (CHANGEDSINCE {})", folder.highestmodseq.unwrap_or(0));
                 let fetches = collect(session.uid_fetch(format!("{oldest}:{max}"), query).await?).await?;
-                changed |= apply_flags(&core, folder, &fetches)?;
+                match apply_flags(&core, &conn.actions, flags, folder, &fetches)? {
+                    Some(c) => changed |= c,
+                    // Asked for again by the next sync.
+                    None => highestmodseq = folder.highestmodseq,
+                }
             }
             session.uid_search(format!("UID {oldest}:{max}")).await?
         } else {
@@ -302,7 +333,10 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
                     .await?,
             )
             .await?;
-            changed |= apply_flags(&core, folder, &fetches)?;
+            match apply_flags(&core, &conn.actions, flags, folder, &fetches)? {
+                Some(c) => changed |= c,
+                None => highestmodseq = folder.highestmodseq,
+            }
             fetches.iter().filter_map(|f| f.uid).collect()
         };
         let local = core
@@ -318,7 +352,7 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         // message the user just moved or deleted is missing too until the action reaches the
         // server, so this only runs when no action was queued while the folder was read.
         let lost: Vec<u32> = present.iter().copied().filter(|u| !local.contains(u)).collect();
-        if !lost.is_empty() && conn.actions.unchanged_since(actions) {
+        if !lost.is_empty() && conn.actions.all.unchanged_since(actions) {
             changed |= fetch_newest(conn, folder, lost, MAX_LOST).await?;
         }
     } else {
@@ -333,6 +367,7 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
         }
     }
 
+    let flags = conn.actions.flags.mark();
     let session = conn.session.as_mut().expect("selected");
     let unseen = if mb.exists == 0 {
         HashSet::new()
@@ -346,14 +381,16 @@ pub async fn sync_folder(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
     let session = conn.session.as_mut().expect("selected");
     imap_conn::drain_unsolicited(session);
     core.db.with(|c| {
+        // The count kept here is newer when a mail was marked meanwhile, see `apply_flags`.
+        let newest = known_max.is_none() || conn.actions.flags.unchanged_since(flags);
         queries::update_folder_sync_state(
             c,
             folder.id,
             &FolderSyncState {
                 uidvalidity,
                 uidnext: mb.uid_next,
-                highestmodseq: mb.highest_modseq,
-                unread,
+                highestmodseq,
+                unread: newest.then_some(unread),
                 total: mb.exists as i64,
             },
         )
@@ -399,9 +436,10 @@ async fn sync_old_unread(conn: &mut Conn, folder: &FolderRow, unseen: &HashSet<u
         .filter(|u| full || !unseen.contains(u))
         .collect();
     if !check.is_empty() {
+        let flags = conn.actions.flags.mark();
         let session = conn.session.as_mut().expect("selected");
         let fetches = collect(session.uid_fetch(uid_set(&check), "(UID FLAGS)").await?).await?;
-        changed |= apply_flags(&core, folder, &fetches)?;
+        changed |= apply_flags(&core, &conn.actions, flags, folder, &fetches)?.unwrap_or(false);
         let present: HashSet<u32> = fetches.iter().filter_map(|f| f.uid).collect();
         let gone: Vec<u32> = check.into_iter().filter(|u| !present.contains(u)).collect();
         if !gone.is_empty() {
@@ -441,8 +479,21 @@ fn flags_of(f: &Fetch) -> (bool, bool, bool) {
     (seen, flagged, answered)
 }
 
-fn apply_flags(core: &Core, folder: &FolderRow, fetches: &[Fetch]) -> Result<bool> {
+/// Stores the flags read from the server and returns whether any changed. `None` when the user
+/// marked or starred a mail since `mark`, so what was read may be older than what is stored: a
+/// later sync reads them again. `set_flags` stores and queues in one go under the database lock,
+/// so this sees either both or neither.
+fn apply_flags(
+    core: &Core,
+    actions: &Actions,
+    mark: Option<u64>,
+    folder: &FolderRow,
+    fetches: &[Fetch],
+) -> Result<Option<bool>> {
     core.db.with(|c| {
+        if !actions.flags.unchanged_since(mark) {
+            return Ok(None);
+        }
         let tx = c.transaction()?;
         let mut changed = false;
         for f in fetches {
@@ -452,7 +503,7 @@ fn apply_flags(core: &Core, folder: &FolderRow, fetches: &[Fetch]) -> Result<boo
             }
         }
         tx.commit()?;
-        Ok(changed)
+        Ok(Some(changed))
     })
 }
 
@@ -764,7 +815,7 @@ async fn search_folder(
     criteria: &str,
 ) -> Result<Vec<Hit>> {
     let core = conn.core.clone();
-    let actions = conn.actions.mark();
+    let actions = conn.actions.all.mark();
     let mb = conn.select(&folder.path).await?;
     // The numbers only mean the stored messages after the first sync, and while the server
     // keeps them.
@@ -789,7 +840,7 @@ async fn search_folder(
         .copied()
         .filter(|u| !known.contains(u) && window.is_some_and(|w| *u < w))
         .collect();
-    if !missing.is_empty() && conn.actions.unchanged_since(actions) {
+    if !missing.is_empty() && conn.actions.all.unchanged_since(actions) {
         missing.sort_unstable_by(|a, b| b.cmp(a));
         missing.truncate(MAX_SEARCH_FETCH);
         let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
@@ -811,7 +862,7 @@ async fn search_all_mail(
     criteria: &str,
 ) -> Result<Vec<Hit>> {
     let core = conn.core.clone();
-    let actions = conn.actions.mark();
+    let actions = conn.actions.all.mark();
     let mb = conn.select(&all.path).await?;
     if all.uidvalidity != mb.uid_validity {
         core.db.with(|c| {
@@ -855,7 +906,7 @@ async fn search_all_mail(
             None => missing.push(uid),
         }
     }
-    if !missing.is_empty() && conn.actions.unchanged_since(actions) {
+    if !missing.is_empty() && conn.actions.all.unchanged_since(actions) {
         missing.sort_unstable_by(|a, b| b.cmp(a));
         missing.truncate(MAX_SEARCH_FETCH);
         let fetches = conn.fetch_headers(uid_set(&missing), true).await?;
@@ -888,9 +939,10 @@ async fn sync_stored(conn: &mut Conn, folder: &FolderRow) -> Result<bool> {
     }
     let mut changed = false;
     for chunk in stored.chunks(UNSUBSCRIBE_BATCH) {
+        let flags = conn.actions.flags.mark();
         let session = conn.session.as_mut().expect("selected");
         let fetches = collect(session.uid_fetch(uid_set(chunk), "(UID FLAGS)").await?).await?;
-        changed |= apply_flags(&core, folder, &fetches)?;
+        changed |= apply_flags(&core, &conn.actions, flags, folder, &fetches)?.unwrap_or(false);
         let present: HashSet<u32> = session.uid_search(format!("UID {}", uid_set(chunk))).await?;
         let gone: Vec<u32> = chunk.iter().copied().filter(|u| !present.contains(u)).collect();
         if !gone.is_empty() {
@@ -1106,7 +1158,7 @@ mod tests {
 
     #[test]
     fn actions_block_repairs_while_pending_or_after_a_change() {
-        let a = Actions::default();
+        let a = Tracker::default();
         let mark = a.mark();
         assert!(a.unchanged_since(mark));
 
@@ -1120,5 +1172,27 @@ mod tests {
         a.done();
         assert!(!a.unchanged_since(mark));
         assert!(a.unchanged_since(a.mark()));
+    }
+
+    #[test]
+    fn only_reading_and_starring_hold_back_flags() {
+        let a = Actions::default();
+        let mark = a.flags.mark();
+        let open = Job::FetchBody { message_id: 1 };
+        a.queued(&open);
+        a.done(&open);
+        assert!(a.flags.unchanged_since(mark), "opening a mail changes no flag");
+
+        let star = Job::SetFlag {
+            folder_id: 1,
+            uids: vec![1],
+            flag: "\\Flagged",
+            add: true,
+        };
+        a.queued(&star);
+        assert!(!a.flags.unchanged_since(mark));
+        a.done(&star);
+        assert!(!a.flags.unchanged_since(mark));
+        assert!(a.flags.unchanged_since(a.flags.mark()));
     }
 }

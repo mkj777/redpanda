@@ -322,13 +322,15 @@ pub struct FolderSyncState {
     pub uidvalidity: Option<u32>,
     pub uidnext: Option<u32>,
     pub highestmodseq: Option<u64>,
-    pub unread: i64,
+    /// None keeps the count.
+    pub unread: Option<i64>,
     pub total: i64,
 }
 
 pub fn update_folder_sync_state(c: &Connection, id: i64, s: &FolderSyncState) -> Result<()> {
     c.execute(
-        "UPDATE folders SET uidvalidity = ?2, uidnext = ?3, highestmodseq = ?4, unread_count = ?5, \
+        "UPDATE folders SET uidvalidity = ?2, uidnext = ?3, highestmodseq = ?4, \
+         unread_count = COALESCE(?5, unread_count), \
          total_count = ?6, last_sync = ?7 WHERE id = ?1",
         params![
             id,
@@ -1617,7 +1619,7 @@ mod tests {
                 uidvalidity: Some(1),
                 uidnext: Some(4),
                 highestmodseq: None,
-                unread: 0,
+                unread: Some(0),
                 total,
             };
             let loaded = |c: &Connection| -> Result<(i64, i64)> {
