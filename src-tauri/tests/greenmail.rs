@@ -69,6 +69,14 @@ async fn server_state(user: &str, folder: &str) -> Vec<(u32, bool)> {
     out
 }
 
+async fn server_starred(user: &str, folder: &str) -> usize {
+    let mut s = raw_session(user).await;
+    s.select(folder).await.unwrap();
+    let found = s.uid_search("FLAGGED").await.unwrap();
+    let _ = s.logout().await;
+    found.len()
+}
+
 async fn eventually<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
     for _ in 0..100 {
         if let Some(v) = f() {
@@ -284,7 +292,7 @@ async fn full_cycle() {
     assert!(found.items.iter().any(|m| m.id == msgs[0].id));
 
     // Mark read reaches the server.
-    app.set_flags(&[msgs[0].id], FlagKind::Seen, true, false).unwrap();
+    app.set_flags(&[msgs[0].id], FlagKind::Seen, true, None).unwrap();
     eventually_async("seen flag on server", || {
         let user = user.clone();
         async move {
@@ -293,6 +301,55 @@ async fn full_cycle() {
         }
     })
     .await;
+
+    // A mail to ourselves is in the inbox and in Sent. Starred shows both in one row, and
+    // removing the star there clears both; in the inbox it only clears the one there.
+    let starred = View::Unified {
+        which: UnifiedView::Starred,
+    };
+    let sent_copy = app
+        .list_messages(&View::Folder { folder_id: sent_f.id }, 0, 10, false)
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|m| m.subject == msgs[1].subject)
+        .unwrap();
+    let both = [msgs[1].id, sent_copy.id];
+    let in_starred = || app.list_messages(&starred, 0, 10, true).unwrap().items;
+    let stars_on_server = |inbox: usize, sent: usize| {
+        let user = user.clone();
+        move || {
+            let user = user.clone();
+            async move {
+                let found = (
+                    server_starred(&user, "INBOX").await,
+                    server_starred(&user, "Sent").await,
+                );
+                (found == (inbox, sent)).then_some(())
+            }
+        }
+    };
+    app.set_flags(&both, FlagKind::Flagged, true, None).unwrap();
+    eventually_async("both starred on server", stars_on_server(1, 1)).await;
+    assert_eq!(in_starred().len(), 1);
+    app.set_flags(
+        &[msgs[1].id],
+        FlagKind::Flagged,
+        false,
+        Some(&View::Folder {
+            folder_id: inbox_f.id,
+        }),
+    )
+    .unwrap();
+    eventually_async("only Sent still starred on server", stars_on_server(0, 1)).await;
+    assert_eq!(in_starred().len(), 1);
+    app.set_flags(&both, FlagKind::Flagged, true, None).unwrap();
+    eventually_async("both starred on server again", stars_on_server(1, 1)).await;
+    let row = in_starred()[0].id;
+    app.set_flags(&[row], FlagKind::Flagged, false, Some(&starred))
+        .unwrap();
+    assert!(in_starred().is_empty());
+    eventually_async("no star left on server", stars_on_server(0, 0)).await;
 
     // Delete moves to Trash.
     app.delete_messages(&[msgs[1].id], false).unwrap();

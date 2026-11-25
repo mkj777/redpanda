@@ -52,6 +52,7 @@ SQLite in the app data directory with versioned migrations (`store/migrations/NN
 - Each account has four IMAP connections: one for user actions and opening mail, one for the background sync, one that IDLEs, and one for searches on the server, so typing a search never holds up opening a mail.
 - All IMAP connections use TCP keepalive (first probe after 60 s), so one the network dropped silently fails within about 90 seconds and reconnects, instead of an IDLE that stops hearing of new mail.
 - Actions (read, star, move, delete, archive) are applied to the DB first, then sent to the server.
+- A conversation row stands for the mails of the conversation that its view covers: those of one folder in a folder, across folders in Starred and Unread. Marking a row as read or unread and removing its star apply to exactly those (`row_messages`); a new star goes on the row's newest mail only. Archive, move, spam and delete stay in the folder of the row's newest mail.
 - Folders synced before the unsubscribe column existed read the list headers of their stored messages once (`HEADER.FIELDS`).
 
 ### `mime/`

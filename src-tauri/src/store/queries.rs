@@ -729,18 +729,14 @@ pub fn list_messages(
     list_messages_with(c, view, offset, limit, threads, &[])
 }
 
-/// Like `list_messages`, where a search also shows `server_hits`, the messages a search on the
-/// server found, as folder and UID.
-pub fn list_messages_with(
-    c: &Connection,
+/// The condition that picks a view's messages from `messages m`. Its values go to the empty
+/// `args`, so they count from ?1. None for a search without a word to look for.
+fn view_filter(
     view: &View,
-    offset: u32,
-    limit: u32,
-    threads: bool,
     server_hits: &[(i64, u32)],
-) -> Result<MessagePage> {
-    let mut args: Vec<rusqlite::types::Value> = Vec::new();
-    let filter = match view {
+    args: &mut Vec<rusqlite::types::Value>,
+) -> Result<Option<String>> {
+    Ok(Some(match view {
         View::Folder { folder_id } => {
             args.push((*folder_id).into());
             "m.folder_id = ?1".to_string()
@@ -757,10 +753,7 @@ pub fn list_messages_with(
         },
         View::Search { query } => {
             let Some(q) = fts_query(query) else {
-                return Ok(MessagePage {
-                    items: vec![],
-                    has_more: false,
-                });
+                return Ok(None);
             };
             args.push(q.into());
             args.push(serde_json::to_string(server_hits)?.into());
@@ -774,6 +767,50 @@ pub fn list_messages_with(
             args.push(email.clone().into());
             format!("m.account_id = ?1 AND m.from_addr = ?2 COLLATE NOCASE AND m.folder_id IN ({VISIBLE_FOLDERS})")
         }
+    }))
+}
+
+/// The messages that conversation rows of a view stand for: `ids`, plus the other messages of
+/// their conversations that the view covers. Unread and Starred reach across folders.
+pub fn row_messages(c: &Connection, view: &View, ids: &[i64]) -> Result<Vec<i64>> {
+    let mut all = ids.to_vec();
+    let mut args = Vec::new();
+    let Some(filter) = view_filter(view, &[], &mut args)? else {
+        return Ok(all);
+    };
+    args.push(serde_json::to_string(ids)?.into());
+    let mut stmt = c.prepare(&format!(
+        "SELECT m.id FROM json_each(?{}) j JOIN messages r ON r.id = j.value \
+           JOIN messages m ON m.account_id = r.account_id AND m.thread_key = r.thread_key \
+         WHERE {filter} ORDER BY m.date DESC, m.id DESC",
+        args.len()
+    ))?;
+    let covered = stmt.query_map(params_from_iter(args.iter()), |r| r.get::<_, i64>(0))?;
+    for id in covered {
+        let id = id?;
+        if !all.contains(&id) {
+            all.push(id);
+        }
+    }
+    Ok(all)
+}
+
+/// Like `list_messages`, where a search also shows `server_hits`, the messages a search on the
+/// server found, as folder and UID.
+pub fn list_messages_with(
+    c: &Connection,
+    view: &View,
+    offset: u32,
+    limit: u32,
+    threads: bool,
+    server_hits: &[(i64, u32)],
+) -> Result<MessagePage> {
+    let mut args = Vec::new();
+    let Some(filter) = view_filter(view, server_hits, &mut args)? else {
+        return Ok(MessagePage {
+            items: vec![],
+            has_more: false,
+        });
     };
     let group = if threads { "account_id, thread_key" } else { "id" };
     let n = args.len();
@@ -1725,6 +1762,104 @@ mod tests {
 
             let page = list_messages(c, &View::Folder { folder_id: inbox }, 0, 2, false)?;
             assert!(page.has_more);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn a_conversation_row_stands_for_the_mails_its_view_covers() {
+        let (db, inbox, work) = setup();
+        db.with(|c| {
+            let sent = upsert_folder(
+                c,
+                "a1",
+                &FolderUpsert {
+                    path: "Sent",
+                    name: "Sent",
+                    depth: 0,
+                    role: "sent",
+                    hidden: false,
+                },
+            )?;
+            let trash = upsert_folder(
+                c,
+                "a1",
+                &FolderUpsert {
+                    path: "Trash",
+                    name: "Trash",
+                    depth: 0,
+                    role: "trash",
+                    hidden: false,
+                },
+            )?;
+            // (folder, uid, thread, seen, flagged), oldest first.
+            for (folder, uid, thread, seen, flagged) in [
+                (inbox, 1, "t1", false, false),
+                (work, 1, "t1", false, true),
+                (sent, 1, "t1", false, true),
+                (trash, 1, "t1", false, true),
+                (inbox, 2, "t1", true, true),
+                (inbox, 3, "t2", false, true),
+            ] {
+                let mut m = msg(
+                    "a1",
+                    folder,
+                    uid,
+                    &format!("m{folder}-{uid}"),
+                    thread,
+                    100 * uid as i64,
+                );
+                (m.seen, m.flagged) = (seen, flagged);
+                upsert_message(c, &m, false)?;
+            }
+            let id = |folder: i64, uid: u32| {
+                c.query_row(
+                    "SELECT id FROM messages WHERE folder_id = ?1 AND uid = ?2",
+                    params![folder, uid],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+            };
+            let covers = |view: View, row: i64| {
+                let mut ids = row_messages(c, &view, &[row]).unwrap();
+                ids.sort();
+                ids
+            };
+            let sorted = |mut ids: Vec<i64>| {
+                ids.sort();
+                ids
+            };
+            let unified = |which| View::Unified { which };
+            let newest = id(inbox, 2);
+            assert_eq!(
+                covers(View::Folder { folder_id: inbox }, newest),
+                sorted(vec![id(inbox, 1), newest]),
+                "a folder only covers its own mails"
+            );
+            assert_eq!(
+                covers(unified(UnifiedView::Inbox), newest),
+                sorted(vec![id(inbox, 1), newest])
+            );
+            assert_eq!(
+                covers(unified(UnifiedView::Starred), newest),
+                sorted(vec![id(work, 1), id(sent, 1), newest]),
+                "every starred mail of the conversation, not the ones in the trash"
+            );
+            assert_eq!(
+                covers(unified(UnifiedView::Unread), id(inbox, 1)),
+                sorted(vec![id(inbox, 1), id(work, 1)]),
+                "unread mails, not sent ones"
+            );
+            assert_eq!(
+                covers(unified(UnifiedView::Unread), newest),
+                sorted(vec![id(inbox, 1), id(work, 1), newest]),
+                "the row's own mail always counts"
+            );
+            assert_eq!(
+                covers(unified(UnifiedView::Starred), id(inbox, 3)),
+                vec![id(inbox, 3)]
+            );
             Ok(())
         })
         .unwrap();

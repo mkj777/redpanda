@@ -123,9 +123,9 @@ pub fn set_flags(
     ids: Vec<i64>,
     flag: FlagKind,
     value: bool,
-    threads: bool,
+    view: Option<View>,
 ) -> Result<()> {
-    state.set_flags(&ids, flag, value, threads)
+    state.set_flags(&ids, flag, value, view.as_ref())
 }
 
 #[tauri::command]

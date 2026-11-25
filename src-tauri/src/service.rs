@@ -554,8 +554,13 @@ impl App {
         groups
     }
 
-    pub fn set_flags(&self, ids: &[i64], flag: FlagKind, value: bool, threads: bool) -> Result<()> {
-        let refs = self.refs(ids, threads)?;
+    /// Sets or clears a flag. With `view`, each message stands for a conversation row there, and
+    /// the flag also goes to the other mails of the conversation that the view covers.
+    pub fn set_flags(&self, ids: &[i64], flag: FlagKind, value: bool, view: Option<&View>) -> Result<()> {
+        let refs = self.core.db.with(|c| match view {
+            Some(view) => queries::message_refs(c, &queries::row_messages(c, view, ids)?),
+            None => queries::message_refs(c, ids),
+        })?;
         for ((account_id, folder_id), msgs) in Self::group(refs) {
             let account = self.core.db.with(|c| queries::get_account(c, &account_id))?;
             let changed: Vec<&MessageRef> = msgs

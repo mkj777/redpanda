@@ -31,6 +31,7 @@ import {
   remove,
   reply,
   reportError,
+  rowView,
   spamAction,
   toggleFlagged,
   toggleSeen,
@@ -352,12 +353,14 @@ function Conversation({ summary }: { summary: MessageSummary }) {
         const unread = msgs.filter((m) => !m.seen).map((m) => m.id);
         setExpanded(new Set([msgs[msgs.length - 1].id, ...unread]));
       });
-    const timer = markOnLeave ? undefined : setTimeout(() => markSeen(summary), 400);
+    // Another view may be open by the time the user moves on.
+    const openedIn = rowView();
+    const timer = markOnLeave ? undefined : setTimeout(() => markSeen(summary, openedIn), 400);
     return () => {
       alive = false;
       clearTimeout(timer);
       // Runs on every reload of the conversation too, but marks only when another message (or none) is selected.
-      if (markOnLeave && useMail.getState().selectedId !== summary.id) void markSeen(summary);
+      if (markOnLeave && useMail.getState().selectedId !== summary.id) void markSeen(summary, openedIn);
     };
     // Reload on a changed conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps

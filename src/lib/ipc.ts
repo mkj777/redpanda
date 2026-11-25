@@ -263,8 +263,10 @@ export const api = {
   searchServer: (query: string) => call<number>("search_server", { query }),
   getMessage: (id: number) => call<MessageDetail>("get_message", { id }),
   getThread: (id: number) => call<MessageSummary[]>("get_thread", { id }),
-  setFlags: (ids: number[], flag: FlagKind, value: boolean, threads: boolean) =>
-    call<void>("set_flags", { ids, flag, value, threads }),
+  /** With `view`, each message stands for a conversation row there, and the flag also goes to the
+   * other mails of the conversation that the view covers. */
+  setFlags: (ids: number[], flag: FlagKind, value: boolean, view: ListView | null) =>
+    call<void>("set_flags", { ids, flag, value, view }),
   moveMessages: (ids: number[], targetFolderId: number, threads: boolean) =>
     call<void>("move_messages", { ids, targetFolderId, threads }),
   deleteMessages: (ids: number[], threads: boolean) => call<void>("delete_messages", { ids, threads }),

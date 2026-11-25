@@ -6,6 +6,7 @@ import {
   toAppError,
   type AppError,
   type FolderRole,
+  type ListView,
   type Mailto,
   type MessageDetail,
   type MessageSummary,
@@ -48,6 +49,14 @@ function threadsFor() {
   return useSettings.getState().threads && view.kind !== "search";
 }
 
+/** The view whose rows stand for whole conversations, or null where each row is one mail. Read and
+ * star apply to what the row stands for: the mails of the conversation that the view covers. */
+export function rowView(): ListView | null {
+  const { view } = useMail.getState();
+  if (!useSettings.getState().threads) return null;
+  return view.kind === "folder" || view.kind === "unified" ? view : null;
+}
+
 export async function toggleSeen(msgs: MessageSummary[]) {
   if (!msgs.length) return;
   const value = !msgs.every((m) => m.seen);
@@ -56,17 +65,18 @@ export async function toggleSeen(msgs: MessageSummary[]) {
       msgs.map((m) => m.id),
       "seen",
       value,
-      threadsFor(),
+      rowView(),
     );
   } catch (e) {
     reportError(e);
   }
 }
 
-export async function markSeen(m: MessageSummary) {
+/** `view` is the one the mail was opened in, see `rowView`. */
+export async function markSeen(m: MessageSummary, view: ListView | null) {
   if (m.seen) return;
   try {
-    await api.setFlags([m.id], "seen", true, threadsFor());
+    await api.setFlags([m.id], "seen", true, view);
   } catch (e) {
     reportError(e);
   }
@@ -76,13 +86,13 @@ export async function toggleFlagged(msgs: MessageSummary[]) {
   if (!msgs.length) return;
   const value = !msgs.every((m) => m.flagged);
   try {
-    // A conversation row shows a star when any of its mails has one, so removing it takes the
-    // whole conversation; a new star goes on the mail itself.
+    // A conversation row shows a star when any of its mails has one, so removing it clears them
+    // all; a new star goes on the mail itself.
     await api.setFlags(
       msgs.map((m) => m.id),
       "flagged",
       value,
-      value ? false : threadsFor(),
+      value ? null : rowView(),
     );
   } catch (e) {
     reportError(e);
