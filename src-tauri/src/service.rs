@@ -795,10 +795,13 @@ impl App {
         let (name, _, bytes) = self.attachment(message_id, index)?;
         let dir = std::env::temp_dir()
             .join("redpanda")
-            .join(message_id.to_string())
-            .join(index.to_string());
+            .join(format!("{message_id}-{index}"));
         std::fs::create_dir_all(&dir).map_err(|e| AppError::Other(e.to_string()))?;
         let path = dir.join(name);
+        // One copy at a time: a second click on Open would otherwise find the first copy half
+        // written and start it over, under the program that is already opening it.
+        static WRITING: Mutex<()> = Mutex::new(());
+        let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
         if !std::fs::read(&path).is_ok_and(|old| old == bytes) {
             std::fs::write(&path, bytes).map_err(|e| AppError::Other(e.to_string()))?;
         }
@@ -1331,9 +1334,16 @@ pub fn check_openable(path: &Path) -> Result<()> {
 pub fn mark_from_internet(path: &Path) {
     #[cfg(windows)]
     {
+        const MARK: &str = "[ZoneTransfer]\r\nZoneId=3\r\n";
         let mut stream = path.as_os_str().to_owned();
         stream.push(":Zone.Identifier");
-        if let Err(e) = std::fs::write(PathBuf::from(stream), "[ZoneTransfer]\r\nZoneId=3\r\n") {
+        let stream = PathBuf::from(stream);
+        // Writing the mark again would change the date of the file, and a program that has it
+        // open would take it for edited.
+        if std::fs::read(&stream).is_ok_and(|old| old == MARK.as_bytes()) {
+            return;
+        }
+        if let Err(e) = std::fs::write(stream, MARK) {
             tracing::warn!(error = %e.kind(), "could not mark a saved attachment as from the internet");
         }
     }
@@ -1421,6 +1431,12 @@ mod download_tests {
         let mark = std::fs::read_to_string(PathBuf::from(stream)).unwrap();
         assert!(mark.contains("ZoneId=3"), "{mark}");
         assert_eq!(std::fs::read(&path).unwrap(), b"%PDF");
+        // Marking a file that is marked already leaves its date alone.
+        let date = || std::fs::metadata(&path).unwrap().modified().unwrap();
+        let before = date();
+        std::thread::sleep(Duration::from_millis(50));
+        mark_from_internet(&path);
+        assert_eq!(date(), before);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

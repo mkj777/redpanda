@@ -15,7 +15,7 @@ As decided by the user:
 - **Attachments drag out as files**, from the attachment in an open mail (from a copy in the temp folder, no download needed) and from the download list. The page cancels the browser's own drag on `dragstart` and asks the backend, which runs the system's drag (OLE `DoDragDrop`) on the main thread while the mouse button is still down. Explorer, browsers and other apps take it like a file dragged from Explorer.
 - **Library**: the user chose CrabNebula's `tauri-plugin-drag`. redpanda uses its core, the `drag` crate by the same authors, directly from its own two commands instead of the plugin's command. The page then names an attachment or a download entry and never a path, so it cannot drag out any other file, and no plugin permission is needed.
 - Drags only ever copy (`DROPEFFECT_COPY`), so dropping a download into another folder on the same drive leaves it in Downloads.
-- **Saved files are marked as from the internet** (Mark-of-the-Web, `Zone.Identifier` with zone 3), downloads as well as the temp copies that are opened or dragged out, as browsers and Outlook do. SmartScreen asks before a program runs, and Office opens documents in Protected View until editing is enabled. On a drive without alternate data streams the mark is left out.
+- **Saved files are marked as from the internet** (Mark-of-the-Web, `Zone.Identifier` with zone 3), downloads as well as the temp copies that are opened, dragged out or handed to Claude over MCP, as browsers and Outlook do. SmartScreen asks before a program runs, and Office opens documents in Protected View until editing is enabled. On a drive without alternate data streams the mark is left out.
 
 ## Consequences
 

@@ -18,7 +18,7 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { api, pickSavePath, type AttachmentInfo, type MessageDetail, type MessageSummary } from "@/lib/ipc";
@@ -255,9 +255,20 @@ function MoveMenu({ summary }: { summary: MessageSummary }) {
   const folders = useMail(
     useShallow((s) => s.folders.filter((f) => f.accountId === summary.accountId && f.id !== summary.folderId)),
   );
+  // Opened with the mouse, the button stays out of focus. Focused after closing, it would open the
+  // menu again on the arrow keys meant for the mail list. With the keyboard it gets the focus back.
+  const byMouse = useRef(false);
   return (
     <Menu.Root>
-      <Menu.Trigger asChild>
+      <Menu.Trigger
+        asChild
+        onPointerDown={() => {
+          byMouse.current = true;
+        }}
+        onKeyDown={() => {
+          byMouse.current = false;
+        }}
+      >
         <IconButton label={t("action.move")}>
           <FolderInput size={16} />
         </IconButton>
@@ -266,6 +277,9 @@ function MoveMenu({ summary }: { summary: MessageSummary }) {
         <Menu.Content
           align="end"
           sideOffset={4}
+          onCloseAutoFocus={(e) => {
+            if (byMouse.current) e.preventDefault();
+          }}
           className="z-50 max-h-80 min-w-48 overflow-y-auto rounded-md border border-line bg-surface p-1 shadow-[0_2px_8px_rgba(0,0,0,0.1)]"
         >
           {folders.map((f) => (

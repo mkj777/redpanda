@@ -317,6 +317,21 @@ fn shell_can_drag(path: &std::path::Path) -> bool {
         && units(canonical.as_os_str()) <= 260
 }
 
+/// Whether the main mouse button is held, which is the right one for people who swapped them.
+#[cfg(windows)]
+fn mouse_button_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SWAPBUTTON};
+    unsafe {
+        let button = if GetSystemMetrics(SM_SWAPBUTTON) != 0 {
+            VK_RBUTTON
+        } else {
+            VK_LBUTTON
+        };
+        GetAsyncKeyState(button.0.into()) < 0
+    }
+}
+
 /// Runs a native drag of `path` until it is dropped or cancelled. Only ever copies, so dropping
 /// a download into another folder leaves it in Downloads. The page names a message or a download,
 /// never a path, so it can't drag out any other file.
@@ -338,6 +353,12 @@ async fn drag_out(window: tauri::Window, path: std::path::PathBuf) -> Result<()>
     let target = window.clone();
     window
         .run_on_main_thread(move || {
+            // Copying a large attachment takes a moment, and the button may be up by now. The
+            // drag would then drop the file at once, on whatever is under the mouse.
+            if !mouse_button_down() {
+                let _ = tx.send(Ok(()));
+                return;
+            }
             let result = drag::start_drag(
                 &target,
                 drag::DragItem::Files(vec![path]),

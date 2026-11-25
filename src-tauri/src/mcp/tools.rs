@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 use crate::error::AppError;
 use crate::model::{Address, Draft, MessageSummary, UnifiedView, View};
-use crate::service::{check_openable, App};
+use crate::service::{check_openable, mark_from_internet, App};
 
 /// Longest message text handed out in one piece.
 const MAX_TEXT_CHARS: usize = 60_000;
@@ -416,10 +416,12 @@ impl MailTools {
         let dir = std::env::temp_dir()
             .join("redpanda")
             .join("mcp")
-            .join(p.message_id.to_string());
+            // A folder of its own for each attachment: two of one mail can carry the same name.
+            .join(format!("{}-{}", p.message_id, p.index));
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(file);
         std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+        mark_from_internet(&path);
         to_json(json!({
             "filename": name,
             "mimeType": mime,

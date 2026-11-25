@@ -1407,8 +1407,14 @@ pub fn add_download(
     size: i64,
 ) -> Result<i64> {
     // Downloads never overwrite, so an entry with this path is one whose file was deleted since;
-    // left in place, it would now show this file as its own.
-    c.execute("DELETE FROM downloads WHERE path = ?1 COLLATE NOCASE", [path])?;
+    // left in place, it would now show this file as its own. Compared here, since NOCASE only
+    // knows ASCII while Windows also takes upper and lower case umlauts for the same.
+    let taken = path.to_lowercase();
+    for d in list_downloads(c)? {
+        if d.path.to_lowercase() == taken {
+            remove_download(c, d.id)?;
+        }
+    }
     c.execute(
         "INSERT INTO downloads (account_id, message_key, att_index, path, size, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -2017,6 +2023,24 @@ mod tests {
             let list = list_downloads(c)?;
             assert_eq!(list.len(), 1);
             assert_eq!((list[0].message_key.as_deref(), list[0].size), (None, 200));
+            add_download(
+                c,
+                "a",
+                None,
+                0,
+                "C:\\Users\\x\\Downloads\\\u{dc}bersicht.pdf",
+                100,
+            )?;
+            add_download(
+                c,
+                "a",
+                None,
+                0,
+                "C:\\Users\\x\\Downloads\\\u{fc}bersicht.pdf",
+                300,
+            )?;
+            let sizes: Vec<i64> = list_downloads(c)?.iter().map(|d| d.size).collect();
+            assert_eq!(sizes, [300, 200]);
             Ok(())
         })
         .unwrap();

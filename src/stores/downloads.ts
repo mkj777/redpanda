@@ -20,18 +20,25 @@ interface DownloadsState {
 
 export const attachmentKey = (messageId: number, index: number) => `${messageId}:${index}`;
 
-/** Bumped by every refresh and every change to the list. A refresh can take a while (it checks
- * each file, maybe on a network share), so its answer only counts while nothing newer happened. */
-let version = 0;
+/** Counts the changes to the list. A refresh can take a while (it checks each file, maybe on a
+ * network share), and its answer no longer fits once the list changed; each change refreshes
+ * again when it is done. */
+let changes = 0;
+/** Counts the refreshes, and which one is shown: an older answer never replaces a newer one. */
+let asked = 0;
+let shown = 0;
 
 export const useDownloads = create<DownloadsState>()((set, get) => ({
   list: [],
   pending: [],
   refresh: async () => {
-    const asked = ++version;
+    const nr = ++asked;
+    const before = changes;
     try {
       const list = await api.listDownloads();
-      if (asked === version) set({ list });
+      if (before !== changes || nr < shown) return;
+      shown = nr;
+      set({ list });
     } catch (e) {
       reportError(e);
     }
@@ -42,8 +49,10 @@ export const useDownloads = create<DownloadsState>()((set, get) => ({
     set({ pending: [...get().pending, key] });
     try {
       const d = await api.downloadAttachment(messageId, index);
-      version++;
+      changes++;
       set({ list: [d, ...get().list.filter((x) => x.id !== d.id)].slice(0, KEPT) });
+      // Also drops the entry of a deleted file whose name this one took.
+      void get().refresh();
     } catch (e) {
       reportError(e);
     } finally {
@@ -51,26 +60,26 @@ export const useDownloads = create<DownloadsState>()((set, get) => ({
     }
   },
   remove: async (id) => {
-    version++;
+    changes++;
     set({ list: get().list.filter((d) => d.id !== id) });
     try {
       await api.removeDownload(id);
-      version++;
     } catch (e) {
       reportError(e);
-      void get().refresh();
     }
+    changes++;
+    void get().refresh();
   },
   clear: async () => {
-    version++;
+    changes++;
     set({ list: [] });
     try {
       await api.clearDownloads();
-      version++;
     } catch (e) {
       reportError(e);
-      void get().refresh();
     }
+    changes++;
+    void get().refresh();
   },
 }));
 
